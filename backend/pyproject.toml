@@ -1,0 +1,47 @@
+[project]
+name = "visun-backend"
+version = "0.1.0"
+description = "Visun modular-monolith API: grounded agent, approvals, and provider adapters."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "pydantic>=2.8",
+  "pydantic-settings>=2.4",
+  "email-validator>=2.2",
+  "sqlmodel>=0.0.22",
+  "httpx>=0.27",
+  "PyJWT[crypto]>=2.9",
+  "structlog>=24.1",
+  "jinja2>=3.1",
+  "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+postgres = ["psycopg[binary]>=3.2"]
+reports = ["weasyprint>=62"]
+agent = ["google-genai>=1.0", "google-adk>=1.0"]
+providers = [
+  "google-api-python-client>=2.140",
+  "google-auth-oauthlib>=1.2",
+  "google-auth-httplib2>=0.2",
+  "python-telegram-bot>=21.6",
+]
+dev = [
+  "pytest>=8.3",
+  "pytest-asyncio>=0.24",
+  "ruff>=0.6",
+  "alembic>=1.13",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
