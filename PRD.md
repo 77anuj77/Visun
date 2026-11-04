@@ -2,14 +2,14 @@
 
 **Product:** Visun  
 **Tagline:** Talk. Manage. Execute.  
-**Version:** 1.2 (implemented hackathon MVP — aligned with frontend, backend, and tech stack)  
-**Status:** Implemented; demo runs credential-free in simulated mode  
-**Last updated:** 3 November 2026  
+**Version:** 1.3 (implemented hackathon MVP — aligned with frontend, backend, and tech stack)  
+**Status:** Implemented; demo runs credential-free in simulated mode, with conditional Clerk auth  
+**Last updated:** 4 November 2026  
 **Primary users:** Freelancers and independent service providers  
 **Target:** PayPal AI Hackathon prototype  
 **Companion specifications:** `frontend.md`, `backend.md`, `techstack.md`
 
-> **Decision log (v1.2):** The shipped product runs credential-free: `AUTH_MODE=demo`, `PROVIDER_MODE=simulated`, SQLite, and a deterministic grounded agent. Production switches to Clerk JWT verification, PostgreSQL/Supabase, real provider adapters, and optional Gemini/ADK through environment variables. Clerk is the production identity provider; Supabase is the production Postgres option. The UI uses the approved orange/black/yellow/stone/off-white palette with light neumorphism and an in-repo design system. Simulated actions are always labelled simulated — never reported as real provider successes.
+> **Decision log (v1.3):** The shipped product runs credential-free by default: `AUTH_MODE=demo`, `PROVIDER_MODE=simulated`, SQLite, and a deterministic grounded agent. Setting `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` enables Clerk sign-in/sign-up, protects `/app`, and forwards session tokens to FastAPI; `SETUP.md` covers Clerk, Supabase/PostgreSQL, and PayPal Sandbox. `ALLOW_PUBLIC_DEMO=true` keeps the seeded demo reachable at `/app?demo=1` in Clerk mode. Production switches to Clerk JWT verification, PostgreSQL/Supabase, real provider adapters, and optional Gemini/ADK through environment variables. Clerk is the production identity provider; Supabase is the production Postgres option. The UI uses the approved orange/black/yellow/stone/off-white palette with light neumorphism and an in-repo design system. Simulated actions are always labelled simulated — never reported as real provider successes.
 
 ---
 
@@ -452,7 +452,7 @@ These are engineering goals, not guarantees of third-party API latency or uptime
 
 ## 17. Suggested build sequence
 
-**Phase 1 — Foundation:** Demo workspace schema + seeded data; SQLite default with PostgreSQL/Supabase override; project/client/milestone CRUD; agreements; light-neumorphic design tokens. **Shipped.** Production Clerk wiring is the remaining auth step.
+**Phase 1 — Foundation:** Demo workspace schema + seeded data; SQLite default with PostgreSQL/Supabase override; project/client/milestone CRUD; agreements; light-neumorphic design tokens; conditional Clerk sign-in/sign-up, `/app` protection, and a bearer-token API bridge. **Shipped.** Live Clerk credentials and real provider consents remain the deployment step (`SETUP.md`).
 
 **Phase 2 — Core agent:** Text chat, typed retrieval tools, evidence links, conversation history, approval workflow. **Shipped**, including honest offline fallback.
 

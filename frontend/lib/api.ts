@@ -34,6 +34,7 @@ export type BootstrapResponse = {
   sample: boolean;
   providerMode: "simulated" | "real";
   authMode: "demo" | "clerk";
+  publicDemo?: boolean;
   workspace: {
     id: string;
     name: string;
@@ -58,6 +59,7 @@ export type HealthResponse = {
   environment: string;
   database: string;
   authMode: "demo" | "clerk";
+  publicDemo?: boolean;
   providerMode: "simulated" | "real";
   providers: Record<string, ProviderStatus>;
   agent: { backend: string; geminiConfigured: boolean };
@@ -79,6 +81,24 @@ export type AgentChatResponse = {
 
 const BASE = "/api/backend";
 
+type ApiAuth = {
+  /** Returns a Clerk session token for the current browser session. */
+  getToken?: () => Promise<string | null>;
+  /** Sends the public-demo header instead of a bearer token. */
+  demo?: boolean;
+};
+
+let apiAuth: ApiAuth = {};
+
+/**
+ * Wired by the workspace providers. Clerk mode forwards a short-lived bearer
+ * token; demo mode sends `X-Visun-Demo` so a Clerk-protected deployment can
+ * still expose the seeded demo workspace when `ALLOW_PUBLIC_DEMO=true`.
+ */
+export function configureApiAuth(next: ApiAuth | null) {
+  apiAuth = next ?? {};
+}
+
 async function request<T>(
   path: string,
   init: RequestInit = {},
@@ -87,13 +107,24 @@ async function request<T>(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
+    const headers = new Headers(init.headers);
+    headers.set("Content-Type", "application/json");
+    if (apiAuth.demo) {
+      headers.set("X-Visun-Demo", "1");
+    } else if (apiAuth.getToken) {
+      try {
+        const token = await apiAuth.getToken();
+        if (token) headers.set("Authorization", `Bearer ${token}`);
+      } catch {
+        // Clerk may not have hydrated yet. The backend returns 401 and the
+        // store surfaces an honest offline state instead of inventing data.
+      }
+    }
+
     const response = await fetch(`${BASE}${path}`, {
       ...init,
       signal: controller.signal,
-      headers: {
-        "Content-Type": "application/json",
-        ...(init.headers ?? {}),
-      },
+      headers,
       cache: "no-store",
     });
     const payload = (await response.json().catch(() => null)) as

@@ -14,6 +14,7 @@ This repository contains both halves of the product:
 | `frontend.md` | Frontend architecture and interaction specification |
 | `backend.md` | Backend architecture, data model, and API contract |
 | `techstack.md` | Stack decisions, environment configuration, and verification |
+| `SETUP.md` | Step-by-step Clerk, Supabase, and PayPal setup |
 
 ## Run it locally
 
@@ -34,12 +35,18 @@ npm install
 npm run dev
 ```
 
-Open <http://localhost:3000/app>. The frontend hydrates from
-`/api/backend/bootstrap` (rewritten to FastAPI by `next.config.ts`) and falls
-back to a local snapshot if the API is down. The topbar shows whether the API is
-online, and labels simulated data as simulated.
+Open <http://localhost:3000>. Both entry points work without credentials:
 
-API docs: <http://localhost:8000/docs>.
+- **Try Visun** — in demo mode this opens `/app`. With a Clerk publishable key it
+  opens the Clerk sign-in/sign-up modal and protects `/app`.
+- **Try demo** — opens the seeded demo workspace at `/app?demo=1`, even on a
+  Clerk-protected deployment when the API sets `ALLOW_PUBLIC_DEMO=true`.
+
+The frontend hydrates from `/api/backend/bootstrap` (rewritten to FastAPI by
+`next.config.ts`) and falls back to a local snapshot if the API is down. The
+topbar shows whether the API is online, and labels simulated data as simulated.
+
+API docs: <http://localhost:8000/docs>. For real keys, follow `SETUP.md`.
 
 ## What works end to end
 
@@ -63,6 +70,10 @@ Configuration is environment-based; see `backend/.env.example` and
 
 - `AUTH_MODE=demo` trusts the seeded local principal. Production refuses demo
   auth and requires Clerk JWT configuration.
+- Setting `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` enables Clerk sign-in/sign-up and
+  protects `/app`; without it the app stays in credential-free demo mode.
+- `ALLOW_PUBLIC_DEMO=true` lets a Clerk-mode API accept the seeded demo via
+  `X-Visun-Demo: 1` (sent by `/app?demo=1`). It never grants a real user's data.
 - `PROVIDER_MODE=simulated` records `simulated=True` and a `sim-*` reference.
   `PROVIDER_MODE=real` calls the provider or fails loudly when credentials are
   missing.
@@ -111,15 +122,19 @@ backend/
   migrations/       # Alembic baseline
   tests/            # SQLite by default, Postgres-compatible
 frontend/
-  app/              # marketing page + /app workspace routes
-  components/       # shell, UI kit, brand
-  lib/              # API client, store, types, demo data, agent fallback
+  app/              # marketing, /sign-in, /sign-up, and /app workspace routes
+  components/       # shell, UI kit, brand, auth buttons/provider bridge
+  lib/              # API client, auth config, store, types, demo data, agent fallback
+  proxy.ts          # Clerk /app protection and demo-cookie handling
 ```
 
 ## Known boundaries
 
-- Gemini Live and real Gmail/Calendar/PayPal/Telegram calls need real
-  credentials and are exercised by guarded code paths, not the demo.
+- Clerk, Supabase, PayPal, Gemini Live, and real Gmail/Calendar/Telegram calls
+  need real credentials; `SETUP.md` documents each one. The credential-free
+  demo exercises the same code paths with explicit simulated results.
+- A new Clerk user starts with an empty workspace; the seeded data is the
+  separate demo path.
 - Report PDF rendering is optional (`weasyprint` extra); the UI exports a
   plain-text copy.
 - The Next.js rewrite does not proxy WebSocket upgrades; the voice UI uses the

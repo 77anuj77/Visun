@@ -164,23 +164,38 @@ def _demo_principal(session: Session) -> Principal:
     )
 
 
-def resolve_principal(session: Session, token: str | None) -> Principal:
+def _wants_public_demo(value: str | None) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def resolve_principal(
+    session: Session, token: str | None, *, allow_demo: bool = False
+) -> Principal:
     if settings.auth_mode == "demo":
         return _demo_principal(session)
-    if not token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="A Clerk session token is required.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    return _provision(session, _claims_from_token(token))
+    if token:
+        return _provision(session, _claims_from_token(token))
+    if allow_demo and settings.allow_public_demo:
+        # Explicit, opt-in public demo. It only ever resolves to the seeded demo
+        # workspace and never grants access to a real user's data.
+        return _demo_principal(session)
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="A Clerk session token is required.",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
 
 def get_principal(
     session: SessionDep,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)],
+    request: Request,
 ) -> Principal:
-    return resolve_principal(session, credentials.credentials if credentials else None)
+    return resolve_principal(
+        session,
+        credentials.credentials if credentials else None,
+        allow_demo=_wants_public_demo(request.headers.get("x-visun-demo")),
+    )
 
 
 PrincipalDep = Annotated[Principal, Depends(get_principal)]
@@ -254,7 +269,8 @@ async def websocket_principal(websocket: WebSocket) -> tuple[Principal, Session]
     """Authenticate a WebSocket with its first message.
 
     The token never appears in the URL. In demo mode the first frame may be a
-    plain ready ping.
+    plain ready ping. A Clerk-mode deployment that opted into `ALLOW_PUBLIC_DEMO`
+    may send `X-Visun-Demo: 1` (or `demo: true` in the first frame) instead.
     """
     from .database import engine  # local import avoids a cycle at module load
 
@@ -266,8 +282,12 @@ async def websocket_principal(websocket: WebSocket) -> tuple[Principal, Session]
         return None
     session = Session(engine)
     token = first.get("token") if isinstance(first, dict) else None
+    demo_flag = (
+        _wants_public_demo(first.get("demo")) if isinstance(first, dict) else False
+    )
+    demo_flag = demo_flag or _wants_public_demo(websocket.headers.get("x-visun-demo"))
     try:
-        principal = resolve_principal(session, token)
+        principal = resolve_principal(session, token, allow_demo=demo_flag)
     except HTTPException as exc:
         await websocket.send_json(
             {"type": "error", "code": exc.status_code, "message": exc.detail}

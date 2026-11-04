@@ -14,8 +14,26 @@ def test_health_reports_modes(api):
     body = response.json()
     assert body["status"] == "ok"
     assert body["authMode"] == "demo"
+    assert body["publicDemo"] is False
     assert body["providerMode"] == "simulated"
     assert body["providers"]["paypal"]["mode"] == "simulated"
+
+
+def test_public_demo_header_requires_opt_in_in_clerk_mode(api, monkeypatch, demo_settings):
+    monkeypatch.setattr(demo_settings, "auth_mode", "clerk")
+    monkeypatch.setattr(demo_settings, "allow_public_demo", False)
+
+    assert api.get("/api/v1/bootstrap").status_code == 401
+    assert (
+        api.get("/api/v1/bootstrap", headers={"X-Visun-Demo": "1"}).status_code
+        == 401
+    )
+
+    monkeypatch.setattr(demo_settings, "allow_public_demo", True)
+    response = api.get("/api/v1/bootstrap", headers={"X-Visun-Demo": "1"})
+    assert response.status_code == 200
+    assert response.json()["workspace"]["id"] == "ws-paroha"
+    assert response.json()["publicDemo"] is True
 
 
 def test_bootstrap_matches_demo_seed(api):

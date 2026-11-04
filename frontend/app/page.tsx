@@ -27,6 +27,7 @@ import {
   X,
 } from "lucide-react";
 import { Logo, LogoMark } from "@/components/brand/Logo";
+import { DemoLink, SignInCta, SignUpCta } from "@/components/auth/AuthActions";
 import { cn } from "@/lib/utils";
 
 /* -------------------------------------------------------------------------- */
@@ -130,19 +131,13 @@ function Header() {
           >
             <Code2 size={16} />
           </a>
-          <Link
-            href="/app"
-            className="rounded-xl px-3 py-2 text-[13px] font-medium text-[#5a564f] transition hover:text-ink"
-          >
+          <SignInCta className="rounded-xl px-3 py-2 text-[13px] font-medium text-[#5a564f] transition hover:text-ink">
             Sign in
-          </Link>
-          <Link
-            href="/app"
-            className="group inline-flex h-10 items-center gap-1.5 rounded-xl border border-[#e24f00] bg-orange px-4 text-[13px] font-semibold text-ink shadow-[0_8px_20px_-8px_rgba(255,90,0,0.75)] transition hover:bg-[#ff6d1f]"
-          >
+          </SignInCta>
+          <SignUpCta className="group inline-flex h-10 items-center gap-1.5 rounded-xl border border-[#e24f00] bg-orange px-4 text-[13px] font-semibold text-ink shadow-[0_8px_20px_-8px_rgba(255,90,0,0.75)] transition hover:bg-[#ff6d1f]">
             Get started
             <ArrowRight size={14} className="transition group-hover:translate-x-0.5" />
-          </Link>
+          </SignUpCta>
         </div>
 
         <button
@@ -177,7 +172,7 @@ function Header() {
               ))}
               <div className="mt-2 flex gap-2">
                 <Link
-                  href="/app"
+                  href="/app?demo=1"
                   onClick={() => setOpen(false)}
                   className="flex h-11 flex-1 items-center justify-center rounded-xl bg-ink text-sm font-medium text-canvas"
                 >
@@ -346,19 +341,20 @@ function Hero() {
             </p>
 
             <div className="mt-7 flex flex-wrap items-center gap-2.5">
-              <Link
-                href="/app"
-                className="cta-shine group relative inline-flex h-12 items-center gap-2 overflow-hidden rounded-2xl border border-[#e24f00] bg-orange px-6 text-[14px] font-semibold text-ink shadow-[0_14px_34px_-12px_rgba(255,90,0,0.8)] transition hover:bg-[#ff6d1f]"
-              >
+              <SignInCta className="cta-shine group relative inline-flex h-12 items-center gap-2 overflow-hidden rounded-2xl border border-[#e24f00] bg-orange px-6 text-[14px] font-semibold text-ink shadow-[0_14px_34px_-12px_rgba(255,90,0,0.8)] transition hover:bg-[#ff6d1f]">
                 Try Visun
                 <ArrowRight size={16} className="transition group-hover:translate-x-0.5" />
-              </Link>
+              </SignInCta>
+              <DemoLink className="inline-flex h-12 items-center gap-2 rounded-2xl border border-[#d9d4ca] bg-white px-5 text-[14px] font-medium text-ink shadow-neu-sm transition hover:border-[#c4beb2] hover:shadow-neu-md">
+                <Play size={14} className="text-orange" />
+                Try demo
+              </DemoLink>
               <a
                 href="#how"
-                className="inline-flex h-12 items-center gap-2 rounded-2xl border border-[#d9d4ca] bg-white px-5 text-[14px] font-medium text-ink shadow-neu-sm transition hover:border-[#c4beb2] hover:shadow-neu-md"
+                className="inline-flex h-12 items-center gap-1 rounded-2xl px-2 text-[13px] font-medium text-muted transition hover:text-ink"
               >
                 See how it works
-                <ChevronRight size={15} className="text-muted" />
+                <ChevronRight size={15} />
               </a>
             </div>
 
@@ -762,7 +758,7 @@ function DemoConsole() {
             </div>
 
             <Link
-              href="/app/copilot?prompt=What%20changed%20on%20Rahul%27s%20project%2C%20and%20how%20much%20is%20still%20unpaid%3F"
+              href="/app/copilot?demo=1&prompt=What%20changed%20on%20Rahul%27s%20project%2C%20and%20how%20much%20is%20still%20unpaid%3F"
               className="group flex items-center justify-between gap-3 rounded-[22px] border border-[#e24f00] bg-orange p-4 text-ink shadow-[0_16px_36px_-18px_rgba(255,90,0,0.8)] transition hover:bg-[#ff6d1f]"
             >
               <div>
@@ -1044,7 +1040,7 @@ function Features() {
                 <p className="text-[11.5px] leading-relaxed text-white/75">{selected.detail}</p>
               </div>
               <Link
-                href={`/app/copilot?prompt=${encodeURIComponent(selected.prompt)}`}
+                href={`/app/copilot?demo=1&prompt=${encodeURIComponent(selected.prompt)}`}
                 className="mt-5 inline-flex items-center justify-between gap-2 rounded-xl border border-white/15 bg-white/[0.06] px-3 py-2.5 text-[11px] font-medium text-white/85 transition hover:border-white/25 hover:bg-white/10 hover:text-white"
               >
                 <span className="truncate">“{selected.prompt}”</span>
@@ -1180,7 +1176,7 @@ function HowItWorks() {
               </div>
             </div>
             <Link
-              href="/app/copilot"
+              href="/app/copilot?demo=1"
               className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl border border-[#d9d4ca] bg-canvas px-3.5 text-[11.5px] font-medium text-ink shadow-neu-sm transition hover:shadow-neu-md"
             >
               See it in the app <ArrowUpRight size={12} />
@@ -1445,7 +1441,7 @@ function UseCases() {
             return (
               <Reveal key={item.prompt} delay={index * 0.04}>
                 <Link
-                  href={`/app/copilot?prompt=${encodeURIComponent(item.prompt)}`}
+                  href={`/app/copilot?demo=1&prompt=${encodeURIComponent(item.prompt)}`}
                   className="group flex h-full flex-col rounded-[20px] border border-[#e0dbd2] bg-white/75 p-4 transition hover:-translate-y-0.5 hover:border-[#cfc8bc] hover:bg-white hover:shadow-neu-md"
                 >
                   <div className="flex items-center justify-between">
@@ -1495,13 +1491,10 @@ function Closing() {
               and inspect the evidence before you approve anything.
             </p>
             <div className="mt-6 flex flex-wrap gap-2.5">
-              <Link
-                href="/app"
-                className="group inline-flex h-11 items-center gap-2 rounded-xl border border-[#e24f00] bg-orange px-5 text-[13px] font-semibold text-ink shadow-[0_12px_28px_-10px_rgba(255,90,0,0.8)] transition hover:bg-[#ff6d1f]"
-              >
+              <DemoLink className="group inline-flex h-11 items-center gap-2 rounded-xl border border-[#e24f00] bg-orange px-5 text-[13px] font-semibold text-ink shadow-[0_12px_28px_-10px_rgba(255,90,0,0.8)] transition hover:bg-[#ff6d1f]">
                 Open the demo
                 <ArrowRight size={14} className="transition group-hover:translate-x-0.5" />
-              </Link>
+              </DemoLink>
               <a
                 href="https://github.com/77anuj77/Visun"
                 target="_blank"
@@ -1560,7 +1553,7 @@ function Footer() {
                 <li><a href="#product" className="hover:text-ink">Live look</a></li>
                 <li><a href="#features" className="hover:text-ink">Workspace</a></li>
                 <li><a href="#how" className="hover:text-ink">How it works</a></li>
-                <li><Link href="/app" className="hover:text-ink">Open demo</Link></li>
+                <li><Link href="/app?demo=1" className="hover:text-ink">Open demo</Link></li>
               </ul>
             </div>
             <div>

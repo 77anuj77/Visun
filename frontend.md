@@ -2,12 +2,12 @@
 
 **Document:** `frontend.md`  
 **Product:** Visun — *Talk. Manage. Execute.*  
-**Version:** 1.1 — implemented frontend (PayPal AI Hackathon MVP)  
-**Updated:** 3 November 2026  
+**Version:** 1.2 — implemented frontend (PayPal AI Hackathon MVP)  
+**Updated:** 4 November 2026  
 **Primary reference:** https://updraft.modulify.website/  
 **Product source:** `PRD.md`
 
-> **Implementation status:** The frontend described here is built in `frontend/` with Next.js 16, React 19, TypeScript strict, Tailwind CSS 4, `motion`, `lucide-react`, `date-fns`, and `recharts`. It hydrates from the FastAPI backend (`/api/backend/bootstrap` through a same-origin Next rewrite) and falls back to a clearly labelled local snapshot when the API is unreachable. The design system and UI kit are in-repo rather than shadcn, and server state uses a typed `fetch` client plus a React context store rather than TanStack Query. Sections below record the implemented behaviour; unimplemented production auth, real provider OAuth, and Gemini Live transport are called out explicitly.
+> **Implementation status:** The frontend described here is built in `frontend/` with Next.js 16, React 19, TypeScript strict, Tailwind CSS 4, `motion`, `lucide-react`, `date-fns`, and `recharts`. It hydrates from the FastAPI backend (`/api/backend/bootstrap` through a same-origin Next rewrite) and falls back to a clearly labelled local snapshot when the API is unreachable. The design system and UI kit are in-repo rather than shadcn, and server state uses a typed `fetch` client plus a React context store rather than TanStack Query. Sections below record the implemented behaviour; real provider OAuth and Gemini Live transport remain unimplemented, while Clerk sign-in/sign-up is wired conditionally on `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`.
 
 > **Design directive:** Borrow Updraft's expressive editorial *language*, not its brand, content, photography, or exact page composition. Build an original, responsive, accessible and trustworthy financial workspace for freelancers.
 
@@ -235,8 +235,15 @@ For panels using `#E9E6DF`, create a surface-aware `neu-stone` utility with the 
 | `/features` | Detail about voice copilot, scope monitoring and finance workflows | Planned: content lives on `/` for the MVP |
 | `/how-it-works` | Transparent end-to-end process | Planned: content lives on `/` for the MVP |
 | `/privacy` | Consent, integration scopes and data controls | Planned: limitations are shown in Settings and on the landing page |
-| `/login` | Authentication | Not implemented: `AUTH_MODE=demo` locally, Clerk wiring is the production step |
-| `/signup` | Workspace onboarding | Not implemented: the seeded demo workspace is used |
+| `/sign-in/[[...sign-in]]` | Clerk sign-in; falls back to a configuration notice when Clerk is absent | Implemented |
+| `/sign-up/[[...sign-up]]` | Clerk sign-up for a new workspace | Implemented |
+
+The landing page has two explicit entry points: **Try Visun** opens the Clerk
+sign-in/sign-up modal when `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` is present (and
+falls back to the demo otherwise), while **Try demo** always opens the seeded
+workspace at `/app?demo=1`. A short-lived `visun_demo` cookie keeps demo
+navigation working; `?demo=0` clears it. `frontend/proxy.ts` protects `/app`
+only when Clerk is configured.
 
 ### 4.2 Authenticated routes
 
@@ -478,10 +485,12 @@ User voice/text input
 frontend/
   app/
     page.tsx                 # editorial landing page
-    layout.tsx
+    layout.tsx               # fonts + conditional ClerkProvider
     globals.css              # tokens + neumorphic utilities
+    sign-in/[[...sign-in]]/page.tsx
+    sign-up/[[...sign-up]]/page.tsx
     app/
-      layout.tsx             # AppShell
+      layout.tsx             # demo or Clerk provider stack + AppShell
       page.tsx               # Today dashboard
       copilot/page.tsx
       projects/page.tsx
@@ -498,20 +507,24 @@ frontend/
     ui/                      # Button, Badge, Panel, Modal, Toast, Field, ...
     shell/                   # AppShell, Sidebar, Topbar, MobileNav, CommandPalette
     brand/                   # Logo, EditorialHeading
+    auth/                    # Clerk CTA buttons and workspace token bridge
   lib/
-    api.ts                   # typed backend client
+    api.ts                   # typed backend client + bearer/demo auth bridge
+    auth-config.ts           # Clerk key detection, URLs, demo cookie name
     store.tsx                # hydration, write-through mutations, API status
     types.ts                 # UI-facing shapes
     demo-data.ts             # local fallback snapshot
     agent.ts                 # offline demo answer script (clearly labelled)
     utils.ts                 # formatting, cn, ids, sleep
+  proxy.ts                   # Clerk /app protection + demo-cookie handling
   next.config.ts             # /api/backend/* rewrite to FastAPI
 ```
 
 ### 8.3 API and data boundaries
 
 - `lib/api.ts` calls same-origin `/api/backend/*`; Next rewrites that prefix to FastAPI. The browser never holds provider credentials.
-- The store hydrates from `GET /bootstrap` and records connection state (`checking`, `online`, `offline`); the topbar shows `API · sandbox`, `API · live`, or `Offline · local`.
+- With Clerk enabled, `components/auth/ClerkWorkspaceProvider.tsx` waits for Clerk to hydrate and configures a stable `getToken()` bridge; every API request carries `Authorization: Bearer <session token>`. Demo mode sends `X-Visun-Demo: 1` instead. Without a Clerk key the original demo client is unchanged.
+- The store hydrates from `GET /bootstrap` and records connection state (`checking`, `online`, `offline`); the topbar shows `API · sandbox`, `API · live`, or `Offline · local`. It also adopts the server's user/workspace profile so the account menu reflects the signed-in Clerk user rather than hard-coded demo text.
 - Mutations call the backend first and update local state from the response. If the backend rejects or is unreachable, the store returns an error, keeps the previous state, and the UI reports it. Nothing is silently marked successful.
 - Payments, tools, approvals and activity use backend enums (`pending_approval`, `executing`, `completed`, `failed`, `rejected`, `expired`); the UI maps `completed` to “Succeeded” and `expired` to “Failed”.
 - Server timestamps are displayed with `date-fns` in readable local time; store and API values remain UTC.
@@ -573,8 +586,8 @@ Use content-driven responsive design rather than fixed-width mockups. Payment ta
 **Kicker:** `VISUN / THE FREELANCE OPERATING SYSTEM`  
 **Headline:** `More doing. Less chasing.`  
 **Support:** `One transparent AI workspace for deadlines, project scope, payments, reports, leads, and client conversations—controlled by your voice.`  
-**Primary CTA:** `Meet your copilot`  
-**Secondary CTA:** `Explore the workflow`
+**Primary CTA:** `Try Visun` (Clerk sign-in when configured)  
+**Secondary CTA:** `Try demo` (opens `/app?demo=1`)
 
 **Section `[01]`**: `Your work is everywhere. Your answers shouldn't be.`  
 **Section `[02]`**: `Six tools. One conversation.`  
@@ -657,7 +670,7 @@ Prioritize the working workflow over a large number of static pages.
 
 The frontend is done for MVP when a user can **understand Visun in one glance, enter a responsive workspace, ask a real voice/text question, inspect the factual sources, approve a meaningful external action, verify its result, and reopen the full conversation history**. Visual polish must not misrepresent payment, email or integration states.
 
-**Current status:** the demo satisfies this credential-free. The backend owns the snapshot, grounded answers, approvals, and audit; the frontend hydrates from it and labels simulated provider results. Remaining production work is Clerk route protection, real provider OAuth consent screens, and Gemini Live audio transport.
+**Current status:** the demo satisfies this credential-free. The backend owns the snapshot, grounded answers, approvals, and audit; the frontend hydrates from it and labels simulated provider results. Clerk sign-in/sign-up, `/app` protection, and the token bridge are wired conditionally on `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`. Remaining production work is real provider OAuth consent screens and Gemini Live audio transport.
 
 ### Sources and boundaries
 

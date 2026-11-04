@@ -31,6 +31,7 @@ def health(session: SessionDep) -> dict[str, Any]:
         "database": database,
         "databaseUrl": settings.database_url.split("@")[-1] if "@" in settings.database_url else settings.database_url.split("///")[-1],
         "authMode": settings.auth_mode,
+        "publicDemo": settings.allow_public_demo,
         "providerMode": settings.provider_mode,
         "providers": adapter_status(),
         "agent": agent_status(),
@@ -53,6 +54,7 @@ def bootstrap(session: SessionDep, principal: PrincipalDep) -> dict[str, Any]:
         )
     payload = snapshot(session, principal.workspace_id, user, workspace)
     payload["authMode"] = settings.auth_mode
+    payload["publicDemo"] = settings.allow_public_demo
     payload["providerMode"] = settings.provider_mode
     payload["providers"] = adapter_status()
     payload["agent"] = agent_status()

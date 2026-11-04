@@ -2,11 +2,11 @@
 
 **Product:** Visun — *Talk. Manage. Execute.*  
 **Document:** `techstack.md`  
-**Version:** 1.2 — implemented stack (SQLite demo, optional Clerk/Supabase)  
-**Updated:** 3 November 2026  
-**Related:** [`PRD.md`](./PRD.md), [`frontend.md`](./frontend.md), [`backend.md`](./backend.md)
+**Version:** 1.3 — implemented stack (SQLite demo, optional Clerk/Supabase)  
+**Updated:** 4 November 2026  
+**Related:** [`PRD.md`](./PRD.md), [`frontend.md`](./frontend.md), [`backend.md`](./backend.md), [`SETUP.md`](./SETUP.md)
 
-> **Implementation status:** The repository ships the modular monolith below. It works credential-free (`AUTH_MODE=demo`, `PROVIDER_MODE=simulated`, SQLite) and switches to Clerk + PostgreSQL/Supabase with environment variables. Gemini/ADK and real provider adapters are optional layers over the same deterministic tool and approval interface. The frontend uses a small custom design-system/UI kit instead of shadcn, and a typed `fetch` client plus a React context store instead of TanStack Query.
+> **Implementation status:** The repository ships the modular monolith below. It works credential-free (`AUTH_MODE=demo`, `PROVIDER_MODE=simulated`, SQLite) and switches to Clerk + PostgreSQL/Supabase with environment variables. Clerk sign-in/sign-up, `/app` protection, and the API bearer-token bridge are implemented conditionally on `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`; `ALLOW_PUBLIC_DEMO` keeps the seeded demo reachable. Gemini/ADK and real provider adapters are optional layers over the same deterministic tool and approval interface. The frontend uses a small custom design-system/UI kit instead of shadcn, and a typed `fetch` client plus a React context store instead of TanStack Query.
 
 > **Primary engineering rule:** Do not write raw infrastructure or lengthy custom implementations when a mature, maintained library, official SDK, or framework already does the job. Prefer a small amount of explicit **business logic** over custom agent runtimes, socket protocols, OAuth implementations, email transports, UI primitives, or payment SDKs. Avoid unnecessary dependencies, too: one good library per problem.
 
@@ -135,7 +135,7 @@ The marketing site is editorial and expressive; authenticated pages prioritize r
 /app/settings/preferences    Profile, voice, notification preferences
 ```
 
-There is no separate `/login` or `/app/approvals` route in the demo: approvals live inside the copilot action card and are also audited on the activity page. Clerk can wrap the `/app` segment when production auth is enabled.
+There is no separate `/login` or `/app/approvals` route: Clerk uses `/sign-in` and `/sign-up`, approvals live inside the copilot action card, and both are audited on the activity page. `frontend/proxy.ts` protects `/app` when Clerk is configured; the seeded demo remains at `/app?demo=1`.
 
 ---
 
@@ -241,7 +241,7 @@ Minimum fields for records supporting financial claims: `workspace_id`, `source_
 - If browser-side Supabase access is added later, use Clerk third-party auth and RLS; it is not required by the current MVP, which keeps all database access behind FastAPI.
 - Gmail and Google Calendar use **separate explicitly authorized integrations**. Signing in with Clerk does not grant Gmail send or Calendar access. Encrypt refresh tokens and limit scopes.
 - The implemented Supabase path is PostgreSQL via `DATABASE_URL`. Storage and Realtime are deferred until the product needs file attachments or live collaboration.
-- **Browser auth wiring is not enabled in the demo.** The backend supports Clerk verification; connecting `@clerk/nextjs` protected routes is the production integration step.
+- **Browser auth is wired conditionally.** `frontend/lib/auth-config.ts` enables Clerk only when `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` is set; `proxy.ts` protects `/app`, and the workspace provider forwards the Clerk session token to FastAPI. Without a key the original demo flow is unchanged.
 
 ---
 
@@ -348,12 +348,12 @@ npm run dev
 ```
 
 Runtime dependencies: `next`, `react`, `react-dom`, `tailwindcss`,
-`@tailwindcss/postcss`, `motion`, `lucide-react`, `date-fns`, `recharts`.
-Development: `typescript`, `eslint`, `eslint-config-next`, `@types/*`.
+`@tailwindcss/postcss`, `motion`, `lucide-react`, `date-fns`, `recharts`,
+`@clerk/nextjs`. Development: `typescript`, `eslint`, `eslint-config-next`,
+`@types/*`.
 
-No Clerk, Supabase, TanStack, or FullCalendar dependency is installed because
-the demo does not use them; add them only when production auth or file/realtime
-features ship.
+Clerk is installed but inert without `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`;
+TanStack Query and FullCalendar remain intentionally unused.
 
 ### Backend
 
@@ -375,20 +375,21 @@ calls.
 
 ## 11. Environment variables (names only; no secrets in Git)
 
-Clerk credentials belong in the **backend/server environment**. `NEXT_PUBLIC_*` values are public configuration, not secrets. Keep every provider secret server-side. `backend/.env.example` and `frontend/.env.example` are canonical.
+Secrets belong in a **server environment** — either the Next.js server (for Clerk middleware) or FastAPI. `NEXT_PUBLIC_*` values are public configuration, not secrets. Keep PayPal/service-role keys server-side only. `backend/.env.example` and `frontend/.env.example` are canonical; `SETUP.md` has the step-by-step dashboard instructions.
 
 ```dotenv
 # Backend core
 ENVIRONMENT=development
 DATABASE_URL=sqlite:///./visun.db
 AUTH_MODE=demo
+ALLOW_PUBLIC_DEMO=false
 PROVIDER_MODE=simulated
 FRONTEND_ORIGIN=http://localhost:3000
 EXTRA_ORIGINS=
 LOG_LEVEL=INFO
 ACTION_EXPIRY_MINUTES=30
 
-# Clerk (production only)
+# Clerk (backend JWT verification when AUTH_MODE=clerk)
 CLERK_ISSUER=
 CLERK_JWKS_URL=
 CLERK_JWT_AUDIENCE=
@@ -423,9 +424,15 @@ APP_ENCRYPTION_KEY=
 
 # Frontend
 BACKEND_ORIGIN=http://localhost:8000
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=
+CLERK_SECRET_KEY=
+NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in
+NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up
+NEXT_PUBLIC_CLERK_SIGN_IN_FALLBACK_REDIRECT_URL=/app
+NEXT_PUBLIC_CLERK_SIGN_UP_FALLBACK_REDIRECT_URL=/app
 ```
 
-The frontend holds no provider secrets. Configure deployment secrets in the hosting platform, and keep `.env` out of Git.
+The frontend holds no provider secrets. The Clerk publishable key is public; the Clerk secret key is server-only. Configure deployment secrets in the hosting platform, and keep `.env`/`.env.local` out of Git.
 
 ---
 
@@ -507,10 +514,10 @@ Use fixtures and simulated providers; run backend integration tests with pytest.
 5. **Reports and leads** — source-backed preview, delivery approval, lead create/update, calendar view, payments recheck.
 6. **Voice** — browser speech plus backend transcript WebSocket sharing the text history; Gemini Live bridge when configured.
 7. **Production path** — Clerk JWT verification, PostgreSQL/Supabase via `DATABASE_URL`, Alembic baseline, SQLite/PostgreSQL test runs.
+8. **Clerk browser auth** — conditional `@clerk/nextjs` provider, modal sign-in/sign-up, protected `/app`, bearer-token API bridge, and an opt-in public demo (`ALLOW_PUBLIC_DEMO`). Documented in `SETUP.md`.
 
 ### Next (needs credentials or product decisions)
 
-- Enable `@clerk/nextjs` routes and load the Clerk token into the API client.
 - Real Gmail/Calendar OAuth consent flow and token encryption at rest.
 - Real PayPal Sandbox invoice/order creation with webhook reconciliation beyond status updates.
 - Telegram bot onboarding UI and allowlisted channel mapping.

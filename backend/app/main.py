@@ -20,6 +20,7 @@ async def lifespan(_: FastAPI):
         "visun_started",
         environment=settings.environment,
         auth_mode=settings.auth_mode,
+        public_demo=settings.allow_public_demo,
         provider_mode=settings.provider_mode,
         database=settings.database_url.split("@")[-1],
     )
@@ -45,7 +46,7 @@ app.add_middleware(
     allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Telegram-Bot-Api-Secret-Token"],
+    allow_headers=["Authorization", "Content-Type", "X-Visun-Demo", "X-Telegram-Bot-Api-Secret-Token"],
 )
 
 install_error_handlers(app)

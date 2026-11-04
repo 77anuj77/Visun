@@ -2,11 +2,11 @@
 
 **Product:** Visun — *Talk. Manage. Execute.*  
 **Document:** `backend.md`  
-**Version:** 1.1 · 3 November 2026  
-**Related:** [`PRD.md`](./PRD.md), [`frontend.md`](./frontend.md), [`techstack.md`](./techstack.md)  
+**Version:** 1.2 · 4 November 2026  
+**Related:** [`PRD.md`](./PRD.md), [`frontend.md`](./frontend.md), [`techstack.md`](./techstack.md), [`SETUP.md`](./SETUP.md)  
 **Status:** Implemented modular monolith; SQLite demo path verified, PostgreSQL/Supabase path verified with Alembic
 
-> **Implementation status:** The backend described here is built and tested in `backend/`. It runs credential-free with `AUTH_MODE=demo`, `PROVIDER_MODE=simulated`, and SQLite. Production switches to Clerk JWT verification and PostgreSQL via environment variables. The deterministic grounded agent is the default; Gemini phrasing and Gemini Live voice are optional adapters over the same tool interface.
+> **Implementation status:** The backend described here is built and tested in `backend/`. It runs credential-free with `AUTH_MODE=demo`, `PROVIDER_MODE=simulated`, and SQLite. Production switches to Clerk JWT verification and PostgreSQL via environment variables. The frontend ships conditional Clerk sign-in, `/app` route protection, and a bearer-token bridge; `ALLOW_PUBLIC_DEMO` keeps the seeded demo reachable in Clerk mode. The deterministic grounded agent is the default; Gemini phrasing and Gemini Live voice are optional adapters over the same tool interface.
 
 > **Priority:** Build reliable, inspectable functionality with established libraries and official SDKs. Avoid writing custom auth, speech recognition, agent orchestration, OAuth transport, payment SDKs, or queue systems. Small, explicit business rules and security enforcement are required even if they add code.
 
@@ -59,12 +59,13 @@ FastAPI is the authoritative data and action API. The browser never holds provid
 ## 4. Authentication, authorization, and user isolation
 
 1. **Authentication is mode-based.** `AUTH_MODE=demo` trusts the seeded local principal so the hackathon demo runs without credentials. `AUTH_MODE=clerk` verifies the signature, `iss`, expiry, and configured `aud` of Clerk session JWTs against cached JWKS and provisions the application user idempotently. Production startup refuses `AUTH_MODE=demo` and refuses an `http://` frontend origin.
-2. Store Clerk subject identifiers as `TEXT` (`clerk_user_id`), not UUID. Demo mode uses a stable seeded subject (`user_demo_ayush`) so the same rows work in both modes.
-3. Every read/write query must be scoped to a workspace and authenticated membership. Support `owner`, `member`, `viewer` where relevant; only authorized actors may approve/send financial or external actions.
-4. If Supabase browser access is added later, configure Clerk third-party auth and RLS for every exposed table; use JWT `sub` (`auth.jwt()->>'sub'`) rather than assuming a UUID. The current MVP keeps all database access server-side.
-5. Backend direct database access bypasses RLS by design: enforce workspace authorization in FastAPI regardless. Service-role keys, database URLs, Clerk secrets, OAuth refresh tokens and PayPal secrets belong server-side only.
-6. Gmail and Google Calendar permissions require **separate provider authorization**, not just a Clerk login. Encrypt refresh tokens at rest, request minimum scopes, allow disconnect/revocation, and show connected-account status.
-7. If private file storage ships, create private buckets for contracts, chat attachments, and reports; deliver short-lived signed download URLs only after checking workspace authorization.
+2. **The public demo is explicit.** With `ALLOW_PUBLIC_DEMO=true` a Clerk-mode API also accepts `X-Visun-Demo: 1` and resolves it to the seeded demo workspace. It never grants access to a real user's workspace. The frontend sends this header only from `/app?demo=1`; default is `false`.
+3. Store Clerk subject identifiers as `TEXT` (`clerk_user_id`), not UUID. Demo mode uses a stable seeded subject (`user_demo_ayush`) so the same rows work in both modes.
+4. Every read/write query must be scoped to a workspace and authenticated membership. Support `owner`, `member`, `viewer` where relevant; only authorized actors may approve/send financial or external actions.
+5. If Supabase browser access is added later, configure Clerk third-party auth and RLS for every exposed table; use JWT `sub` (`auth.jwt()->>'sub'`) rather than assuming a UUID. The current MVP keeps all database access server-side.
+6. Backend direct database access bypasses RLS by design: enforce workspace authorization in FastAPI regardless. Service-role keys, database URLs, Clerk secrets, OAuth refresh tokens and PayPal secrets belong server-side only.
+7. Gmail and Google Calendar permissions require **separate provider authorization**, not just a Clerk login. Encrypt refresh tokens at rest, request minimum scopes, allow disconnect/revocation, and show connected-account status.
+8. If private file storage ships, create private buckets for contracts, chat attachments, and reports; deliver short-lived signed download URLs only after checking workspace authorization.
 
 ## 5. Database specification
 
@@ -193,7 +194,7 @@ PROPOSED -> PENDING_APPROVAL -> APPROVED -> EXECUTING -> COMPLETED
 
 ## 10. API contract (v1)
 
-All private endpoints accept the demo principal locally and a valid Clerk session bearer token when `AUTH_MODE=clerk`. Resource-level authorization is enforced in every query. Use Pydantic response models and consistent error envelopes. FastAPI OpenAPI is the authoritative type contract at `/api/v1/openapi.json`.
+All private endpoints accept the demo principal locally and a valid Clerk session bearer token when `AUTH_MODE=clerk`. A Clerk-mode API additionally accepts `X-Visun-Demo: 1` when `ALLOW_PUBLIC_DEMO=true`; the header resolves only to the seeded demo workspace. Resource-level authorization is enforced in every query. Use Pydantic response models and consistent error envelopes. FastAPI OpenAPI is the authoritative type contract at `/api/v1/openapi.json`.
 
 ```text
 GET    /api/v1/health
@@ -279,7 +280,7 @@ backend/
   migrations/
     versions/0001_initial.py
   tests/
-    test_api.py         # 16 end-to-end API tests
+    test_api.py         # 17 end-to-end API tests
   pyproject.toml
   .env.example
 ```
@@ -290,7 +291,7 @@ Keep route modules thin and business logic in services; adapters wrap vendor API
 
 Server configuration via `pydantic-settings` and deployment secret manager. Primary names are public; legacy `VISUN_*` aliases are accepted. Expected categories:
 
-- `ENVIRONMENT`, `DATABASE_URL` (SQLite default or PostgreSQL/Supabase), `AUTH_MODE`, `PROVIDER_MODE`, `FRONTEND_ORIGIN`, `EXTRA_ORIGINS`, `LOG_LEVEL`, `ACTION_EXPIRY_MINUTES`.
+- `ENVIRONMENT`, `DATABASE_URL` (SQLite default or PostgreSQL/Supabase), `AUTH_MODE`, `ALLOW_PUBLIC_DEMO`, `PROVIDER_MODE`, `FRONTEND_ORIGIN`, `EXTRA_ORIGINS`, `LOG_LEVEL`, `ACTION_EXPIRY_MINUTES`.
 - Clerk issuer / JWKS endpoint / configured JWT audience / secret keys.
 - Google Gemini API key plus selected **currently supported** text/live model identifiers, `AGENT_BACKEND`, `VOICE_BACKEND`.
 - PayPal sandbox client ID, client secret, webhook ID, environment.

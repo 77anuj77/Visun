@@ -19,6 +19,8 @@ import {
   UserRound,
 } from "lucide-react";
 import { Avatar, Badge } from "@/components/ui";
+import { ClerkSignOut } from "@/components/auth/AuthActions";
+import { clerkEnabled } from "@/lib/auth-config";
 import { useAppStore } from "@/lib/store";
 import { cn, formatTime } from "@/lib/utils";
 import { pageMeta } from "./nav";
@@ -44,10 +46,18 @@ export function Topbar({
 }) {
   const pathname = usePathname();
   const meta = pageMeta(pathname);
-  const { state, connection, providerMode, authMode, refresh } = useAppStore();
+  const { state, connection, providerMode, authMode, profile, isDemo, refresh } =
+    useAppStore();
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [read, setRead] = useState(false);
+  const initials =
+    profile.name
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase() ?? "")
+      .join("") || "V";
 
   const pending = state.conversations.reduce(
     (total, conversation) =>
@@ -240,7 +250,7 @@ export function Topbar({
             aria-label="Account menu"
             aria-expanded={profileOpen}
           >
-            <Avatar name="Ayush Paroha" initials="AP" hue="orange" />
+            <Avatar name={profile.name} initials={initials} hue="orange" />
           </button>
           {profileOpen ? (
             <>
@@ -251,10 +261,11 @@ export function Topbar({
               />
               <div className="absolute right-0 top-12 z-50 w-[260px] overflow-hidden rounded-2xl border border-[#dcd7cd] bg-white p-1.5 shadow-[0_30px_70px_-25px_rgba(0,0,0,0.45)]">
                 <div className="flex items-center gap-3 rounded-xl bg-[#f8f7f3] px-3 py-3">
-                  <Avatar name="Ayush Paroha" initials="AP" hue="orange" />
+                  <Avatar name={profile.name} initials={initials} hue="orange" />
                   <div className="min-w-0">
-                    <p className="truncate text-[13px] font-semibold">Ayush Paroha</p>
-                    <p className="truncate text-[11px] text-muted">ayush@parohastudio.com</p>
+                    <p className="truncate text-[13px] font-semibold">{profile.name}</p>
+                    <p className="truncate text-[11px] text-muted">{profile.email}</p>
+                    <p className="truncate text-[10px] text-[#918c83]">{profile.workspace}</p>
                   </div>
                 </div>
                 <div className="mt-1 flex flex-col">
@@ -274,6 +285,18 @@ export function Topbar({
                   </Link>
                 </div>
                 <div className="my-1 h-px bg-[#eae6de]" />
+                {clerkEnabled && isDemo ? (
+                  <Link
+                    href="/app?demo=0"
+                    onClick={() => setProfileOpen(false)}
+                    className="flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-[12.5px] font-medium text-ink transition hover:bg-[#f6f4ef]"
+                  >
+                    <UserRound size={14} /> Sign in to your workspace
+                  </Link>
+                ) : null}
+                {clerkEnabled && !isDemo ? (
+                  <ClerkSignOut className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-[12.5px] text-[#4c4943] transition hover:bg-[#f6f4ef] hover:text-ink" />
+                ) : null}
                 <Link
                   href="/"
                   className="flex items-center justify-between rounded-lg px-3 py-2.5 text-[12px] text-muted transition hover:bg-[#f6f4ef] hover:text-ink"

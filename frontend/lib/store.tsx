@@ -9,8 +9,8 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { api, type BootstrapResponse } from "./api";
-import { defaultState } from "./demo-data";
+import { api, configureApiAuth, type BootstrapResponse } from "./api";
+import { defaultState, workspace as demoWorkspace } from "./demo-data";
 import type {
   ActionStatus,
   ActivityEvent,
@@ -46,6 +46,8 @@ type StoreValue = {
   providerMode: "simulated" | "real";
   authMode: "demo" | "clerk";
   apiAgent: string;
+  profile: { name: string; email: string; workspace: string };
+  isDemo: boolean;
   refresh: () => Promise<void>;
   noteApiFailure: (error: string) => void;
   reviewFinding: (id: string, reviewState: ReviewState) => void;
@@ -84,9 +86,28 @@ type StoreValue = {
 
 const StoreContext = createContext<StoreValue | null>(null);
 
-export function AppStoreProvider({ children }: { children: ReactNode }) {
+type AppStoreProviderProps = {
+  children: ReactNode;
+  /** Clerk token getter. Omit for demo mode. */
+  getToken?: () => Promise<string | null>;
+  /** When true, requests carry `X-Visun-Demo: 1` instead of a bearer token. */
+  demo?: boolean;
+  /**
+   * True only for a signed-in Clerk workspace. The seeded demo must never
+   * render for an authenticated user while their own workspace loads.
+   */
+  authenticated?: boolean;
+};
+
+export function AppStoreProvider({
+  children,
+  getToken,
+  demo = false,
+  authenticated = false,
+}: AppStoreProviderProps) {
   const [state, setState] = useState<AppState>(defaultState);
   const [hydrated, setHydrated] = useState(false);
+  const [workspaceLoaded, setWorkspaceLoaded] = useState(false);
   const [connection, setConnection] = useState<ConnectionState>("checking");
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [providerMode, setProviderMode] = useState<"simulated" | "real">(
@@ -94,23 +115,46 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   );
   const [authMode, setAuthMode] = useState<"demo" | "clerk">("demo");
   const [apiAgent, setApiAgent] = useState("deterministic");
+  const [profile, setProfile] = useState({
+    name: demoWorkspace.owner,
+    email: demoWorkspace.email,
+    workspace: demoWorkspace.name,
+  });
+  // Only the demo snapshot is cached in the browser. An authenticated workspace
+  // always re-reads from the API so a shared browser never shows another
+  // account's records from localStorage.
+  const storageKey = demo ? STORAGE_KEY : null;
+
+  // Runs before the hydration effect below, so the first bootstrap request
+  // already carries the right credentials.
+  useEffect(() => {
+    configureApiAuth({ getToken, demo });
+    return () => configureApiAuth(null);
+  }, [getToken, demo]);
 
   const applySnapshot = useCallback((snapshot: BootstrapResponse) => {
     setState(snapshot.state);
     setProviderMode(snapshot.providerMode);
     setAuthMode(snapshot.authMode);
     setApiAgent(snapshot.agent?.backend ?? "deterministic");
+    setProfile({
+      name: snapshot.user.name,
+      email: snapshot.user.email,
+      workspace: snapshot.workspace.name,
+    });
     setConnection("online");
     setConnectionError(null);
+    setWorkspaceLoaded(true);
+    if (!storageKey) return;
     try {
       window.localStorage.setItem(
-        STORAGE_KEY,
+        storageKey,
         JSON.stringify(snapshot.state),
       );
     } catch {
       // Quota or private mode — the in-memory snapshot is still authoritative.
     }
-  }, []);
+  }, [storageKey]);
 
   const refresh = useCallback(async () => {
     setConnection("checking");
@@ -124,8 +168,13 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   }, [applySnapshot]);
 
   useEffect(() => {
+    if (!storageKey) {
+      setHydrated(true);
+      void refresh();
+      return;
+    }
     try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
+      const raw = window.localStorage.getItem(storageKey);
       if (raw) {
         const parsed = JSON.parse(raw) as AppState;
         if (parsed.version === defaultState.version) {
@@ -134,20 +183,20 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       }
     } catch {
       // A corrupted demo cache should never block the app.
-      window.localStorage.removeItem(STORAGE_KEY);
+      window.localStorage.removeItem(storageKey);
     }
     setHydrated(true);
     void refresh();
-  }, [refresh]);
+  }, [refresh, storageKey]);
 
   useEffect(() => {
-    if (!hydrated) return;
+    if (!hydrated || !storageKey) return;
     try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      window.localStorage.setItem(storageKey, JSON.stringify(state));
     } catch {
       // Private browsing / quota — keep the in-memory session usable.
     }
-  }, [state, hydrated]);
+  }, [state, hydrated, storageKey]);
 
   const noteFailure = useCallback((error: string) => {
     setConnection("offline");
@@ -647,6 +696,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       providerMode,
       authMode,
       apiAgent,
+      profile,
+      isDemo: demo,
       refresh,
       noteApiFailure: noteFailure,
       reviewFinding,
@@ -676,6 +727,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       providerMode,
       authMode,
       apiAgent,
+      profile,
+      demo,
       refresh,
       noteFailure,
       reviewFinding,
@@ -698,6 +751,41 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       resetDemo,
     ],
   );
+
+  // An authenticated workspace never falls back to seeded demo data. It either
+  // loads the signed-in user's records or reports that the API is unreachable.
+  // Only the first load is gated, so a failed background refresh keeps the
+  // already-verified workspace on screen.
+  if (authenticated && !workspaceLoaded) {
+    const failed = connection === "offline";
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-canvas px-6">
+        <div className="w-full max-w-md rounded-3xl border border-[#e0dbd2] bg-white p-8 text-center shadow-neu-md">
+          <p className="text-[15px] font-semibold text-ink">
+            {failed ? "We couldn't load your workspace" : "Loading your workspace…"}
+          </p>
+          <p className="mt-2 text-[12px] leading-relaxed text-muted">
+            {failed
+              ? connectionError ?? "The API is unreachable. Try again in a moment."
+              : "Fetching your projects, payments, and conversations from Visun."}
+          </p>
+          {failed ? (
+            <button
+              type="button"
+              onClick={() => void refresh()}
+              className="mt-6 inline-flex h-10 items-center justify-center rounded-xl border border-[#e24f00] bg-orange px-5 text-[12.5px] font-semibold text-ink transition hover:bg-[#ff5c0a]"
+            >
+              Try again
+            </button>
+          ) : (
+            <div className="mx-auto mt-6 h-1 w-24 overflow-hidden rounded-full bg-[#f1ede5]">
+              <div className="h-full w-1/2 animate-pulse rounded-full bg-orange" />
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }

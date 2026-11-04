@@ -6,7 +6,7 @@ import type { NextConfig } from "next";
  * NEXT_PUBLIC_ secret. Point BACKEND_ORIGIN at a deployed API in production.
  */
 const backendOrigin =
-  process.env.BACKEND_ORIGIN?.replace(/\/$/, "") ?? "http://localhost:8000";
+  process.env.BACKEND_ORIGIN?.trim().replace(/\/$/, "") || "http://localhost:8000";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,

@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     auth_mode: Literal["demo", "clerk"] = Field(
         default="demo", validation_alias=AliasChoices("AUTH_MODE", "VISUN_AUTH_MODE")
     )
+    allow_public_demo: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("ALLOW_PUBLIC_DEMO", "VISUN_ALLOW_PUBLIC_DEMO"),
+    )
     frontend_origin: str = Field(
         default="http://localhost:3000",
         validation_alias=AliasChoices("FRONTEND_ORIGIN", "VISUN_FRONTEND_ORIGIN"),
