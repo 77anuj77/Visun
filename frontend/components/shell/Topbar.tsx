@@ -94,22 +94,25 @@ export function Topbar({
 
         <button
           onClick={onOpenPalette}
-          className="group hidden h-10 items-center gap-2 rounded-xl border border-[#ddd8cf] bg-[#f2efe9] px-3 text-[13px] text-muted shadow-[inset_2px_2px_5px_rgba(35,31,24,0.08),inset_-2px_-2px_5px_rgba(255,255,255,0.85)] transition hover:border-[#ccc6bb] hover:text-ink md:flex md:w-[240px] lg:w-[300px]"
+          className="group hidden h-10 items-center gap-2.5 rounded-full border border-[#e3dfd6] bg-white/70 px-3.5 text-[13px] text-muted shadow-[0_1px_2px_rgba(35,31,24,0.04)] backdrop-blur transition duration-200 hover:border-[#d2ccc0] hover:bg-white hover:text-ink hover:shadow-[0_8px_20px_-12px_rgba(35,31,24,0.45)] md:flex md:w-[248px] lg:w-[320px]"
           aria-label="Open command palette"
         >
-          <Search size={15} />
-          <span className="flex-1 text-left">Search or jump to…</span>
-          <kbd className="flex items-center gap-0.5 rounded-md border border-[#d6d0c5] bg-canvas px-1.5 py-0.5 font-mono text-[10px] text-[#77726a]">
-            <Command size={9} /> K
+          <Search
+            size={15}
+            className="shrink-0 text-[#8b867d] transition-colors duration-200 group-hover:text-orange"
+          />
+          <span className="flex-1 truncate text-left">Search or jump to…</span>
+          <kbd className="flex shrink-0 items-center gap-1 rounded-full border border-[#e6e2d9] bg-[#f7f5f0] px-2 py-[3px] font-mono text-[10px] leading-none text-[#8b867d] transition-colors duration-200 group-hover:border-[#ded8cc] group-hover:text-ink">
+            <Command size={9} />K
           </kbd>
         </button>
 
         <button
           onClick={onOpenPalette}
-          className="flex h-10 w-10 items-center justify-center rounded-xl text-muted transition hover:bg-black/5 hover:text-ink md:hidden"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#e3dfd6] bg-white/70 text-[#6f6a62] shadow-[0_1px_2px_rgba(35,31,24,0.04)] backdrop-blur transition duration-200 active:scale-95 hover:border-[#d2ccc0] hover:text-orange md:hidden"
           aria-label="Search"
         >
-          <Search size={18} />
+          <Search size={17} />
         </button>
 
         <button
@@ -151,10 +154,14 @@ export function Topbar({
           </Badge>
         </button>
 
-        <Badge tone="yellow" className="hidden h-8 gap-1.5 px-2.5 text-[10.5px] lg:inline-flex">
-          <ShieldCheck size={11} />
-          Sandbox demo
-        </Badge>
+        {isDemo ? (
+          <span className="hidden lg:block">
+            <Badge tone="yellow" className="h-8 gap-1.5 px-2.5 text-[10.5px]">
+              <ShieldCheck size={11} />
+              Sandbox demo
+            </Badge>
+          </span>
+        ) : null}
 
         <div className="relative">
           <button

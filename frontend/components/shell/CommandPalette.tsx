@@ -239,24 +239,36 @@ export function CommandPalette({
             role="dialog"
             aria-modal="true"
             aria-label="Command palette"
-            className="relative z-10 w-full max-w-[600px] overflow-hidden rounded-[22px] border border-[#d9d4ca] bg-white shadow-[0_40px_100px_-30px_rgba(0,0,0,0.55)]"
+            className="relative z-10 w-full max-w-[600px] overflow-hidden rounded-[24px] border border-[#ddd8ce] bg-white/95 shadow-[0_50px_120px_-40px_rgba(20,18,14,0.6)] ring-1 ring-white/70 backdrop-blur-xl"
             initial={{ opacity: 0, y: -12, scale: 0.99 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -8, scale: 0.99 }}
             transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
           >
-            <div className="flex items-center gap-3 border-b border-[#e8e4dc] px-4">
-              <Search size={18} className="text-muted" />
+            <div className="flex items-center gap-3 border-b border-[#eeeae2] px-4 transition-colors duration-200 focus-within:border-[#f0c9ae] focus-within:bg-[#fffdfa] sm:px-5">
+              <span
+                className={cn(
+                  "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border transition-colors duration-200",
+                  query.trim()
+                    ? "border-[#f3c6ad] bg-[#ffe9dc] text-orange"
+                    : "border-[#e8e4dc] bg-[#faf9f6] text-[#8b867d]",
+                )}
+                aria-hidden="true"
+              >
+                <Search size={16} />
+              </span>
               <input
                 ref={inputRef}
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search pages, ask Visun, or run an action…"
-                className="h-14 flex-1 bg-transparent text-[14px] outline-none placeholder:text-[#98938b]"
+                placeholder="Search pages or ask Visun…"
+                className="h-16 min-w-0 flex-1 bg-transparent text-[15px] text-ink caret-orange placeholder:text-[#a09a90]"
+                style={{ outline: "none" }}
                 aria-label="Command search"
                 autoComplete="off"
+                spellCheck={false}
               />
-              <kbd className="hidden rounded-md border border-[#e0dbd2] bg-[#f8f7f3] px-1.5 py-1 font-mono text-[9px] text-muted sm:block">
+              <kbd className="hidden rounded-full border border-[#e6e2d9] bg-[#f7f5f0] px-2.5 py-1 font-mono text-[9.5px] leading-none tracking-[0.08em] text-[#8b867d] sm:block">
                 ESC
               </kbd>
             </div>
@@ -272,7 +284,7 @@ export function CommandPalette({
               ) : (
                 grouped.map((section) => (
                   <div key={section.group} className="mb-1">
-                    <p className="px-2.5 pb-1.5 pt-2 font-mono text-[9px] uppercase tracking-[0.16em] text-[#918c83]">
+                    <p className="px-2.5 pb-1.5 pt-3 font-mono text-[9px] uppercase tracking-[0.16em] text-[#918c83]">
                       {section.group}
                     </p>
                     {section.items.map((item) => {
@@ -285,8 +297,10 @@ export function CommandPalette({
                           onMouseEnter={() => setCursor(index)}
                           onClick={item.run}
                           className={cn(
-                            "flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition",
-                            selected ? "bg-[#f4f1eb]" : "hover:bg-[#f8f6f2]",
+                            "group flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition duration-150",
+                            selected
+                              ? "bg-[#f7f4ee] shadow-[inset_0_0_0_1px_#e9e3d7]"
+                              : "hover:bg-[#faf8f4]",
                           )}
                         >
                           <span
@@ -300,7 +314,12 @@ export function CommandPalette({
                             <Icon size={15} />
                           </span>
                           <span className="min-w-0 flex-1">
-                            <span className="block truncate text-[13px] font-medium">
+                            <span
+                              className={cn(
+                                "block truncate text-[13px] font-medium transition-colors duration-150",
+                                selected ? "text-ink" : "text-[#2f2d29]",
+                              )}
+                            >
                               {item.label}
                             </span>
                             <span className="block truncate text-[11px] text-muted">
@@ -320,13 +339,19 @@ export function CommandPalette({
               )}
             </div>
 
-            <div className="flex items-center justify-between border-t border-[#e8e4dc] bg-[#faf9f6] px-4 py-2.5 text-[10.5px] text-muted">
-              <span className="flex items-center gap-1.5">
-                <Command size={11} /> K to open
+            <div className="flex items-center justify-between gap-3 border-t border-[#eeeae2] bg-[#faf9f6] px-4 py-2.5 text-[10.5px] text-muted sm:px-5">
+              <span className="flex items-center gap-1.5 truncate">
+                <span className="hidden items-center gap-1.5 sm:flex">
+                  <Command size={11} /> K to open
+                </span>
+                <span className="sm:hidden">
+                  {filtered.length} {filtered.length === 1 ? "result" : "results"}
+                </span>
               </span>
-              <span className="flex items-center gap-3">
-                <span>↑↓ navigate</span>
-                <span>↵ open</span>
+              <span className="flex shrink-0 items-center gap-3">
+                <span className="hidden sm:inline">↑↓ navigate</span>
+                <span className="hidden sm:inline">↵ open</span>
+                <span className="sm:hidden">Esc to close</span>
               </span>
             </div>
           </motion.div>
