@@ -22,11 +22,30 @@ const clerkProxy = clerkMiddleware(async (auth, request) => {
   const demoParam = url.searchParams.get("demo");
 
   if (isWorkspaceRoute(request)) {
+    const { userId } = await auth();
+
     if (demoParam === "0") {
       const destination = url.clone();
       destination.searchParams.delete("demo");
       const response = NextResponse.redirect(destination);
       response.cookies.delete(DEMO_COOKIE);
+      return response;
+    }
+
+    // A real Clerk session always beats the demo cookie. Drop the cookie so the
+    // signed-in user keeps their own workspace across navigation.
+    if (userId) {
+      if (demoParam === "1") {
+        const destination = url.clone();
+        destination.searchParams.delete("demo");
+        const response = NextResponse.redirect(destination);
+        response.cookies.delete(DEMO_COOKIE);
+        return response;
+      }
+      const response = NextResponse.next();
+      if (request.cookies.get(DEMO_COOKIE)?.value === "1") {
+        response.cookies.delete(DEMO_COOKIE);
+      }
       return response;
     }
 

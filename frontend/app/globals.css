@@ -348,3 +348,118 @@ summary {
     transform: none;
   }
 }
+
+/* -------------------------------------------------------------------------- */
+/* Marketing-only shell                                                       */
+/*                                                                            */
+/* Everything below is namespaced with `.mk-` and is only mounted by the      */
+/* `(marketing)` route group. Dashboard and Clerk routes never receive these  */
+/* classes, so cursor hiding, marquee motion, and editorial wordmarks cannot  */
+/* leak into authenticated screens.                                          */
+/* -------------------------------------------------------------------------- */
+
+.mk-root {
+  /* `clip` avoids creating a scroll container, so sticky nav and ScrollTrigger
+     measurements still work while horizontal overflow stays contained. */
+  overflow-x: clip;
+
+  /* The app's next/font variables are mounted on <body>, while Tailwind's
+     @theme resolves `--font-sans` on :root. Re-declaring them here — scoped to
+     marketing only — is what makes Inter and Instrument Serif actually apply
+     without changing the dashboard's typography. */
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-instrument), Georgia, "Times New Roman", serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, monospace;
+  font-family: var(--font-sans);
+}
+
+.mk-cursor {
+  mix-blend-mode: difference;
+  will-change: transform;
+  contain: layout style;
+}
+
+/* Hide the native cursor only while the marketing dot is active. */
+html.mk-cursor-on,
+html.mk-cursor-on * {
+  cursor: none !important;
+}
+
+/* Inputs always keep the native I-beam — the custom cursor stands down. */
+html.mk-cursor-on input,
+html.mk-cursor-on textarea,
+html.mk-cursor-on [contenteditable="true"] {
+  cursor: text !important;
+}
+
+html.mk-cursor-on select {
+  cursor: default !important;
+}
+
+html.mk-cursor-on [data-native-cursor] {
+  cursor: auto !important;
+}
+
+.mk-marquee {
+  animation: mk-marquee 30s linear infinite;
+  will-change: transform;
+}
+
+@keyframes mk-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.mk-wave {
+  animation: mk-wave 900ms ease-in-out infinite;
+  transform-origin: bottom;
+}
+
+@keyframes mk-wave {
+  0%,
+  100% {
+    transform: scaleY(0.4);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes mk-accordion-down {
+  from {
+    height: 0;
+    opacity: 0;
+  }
+  to {
+    height: var(--radix-accordion-content-height);
+    opacity: 1;
+  }
+}
+
+@keyframes mk-accordion-up {
+  from {
+    height: var(--radix-accordion-content-height);
+    opacity: 1;
+  }
+  to {
+    height: 0;
+    opacity: 0;
+  }
+}
+
+.mk-footer-label {
+  font-family: var(--font-mono);
+  font-size: 0.56rem;
+  line-height: 1.2;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #8f8a80;
+}
+
+.mk-footer-wordmark {
+  line-height: 1;
+}

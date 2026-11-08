@@ -1,63 +1,120 @@
 "use client";
 
 import Link from "next/link";
-import type { ReactNode } from "react";
-import { SignInButton, SignOutButton, SignUpButton } from "@clerk/nextjs";
+import { useRouter } from "next/navigation";
+import type { MouseEvent, ReactNode } from "react";
+import { SignOutButton, useAuth, useClerk } from "@clerk/nextjs";
 import {
   clerkAfterAuthUrl,
   clerkEnabled,
+  clerkSignedInUrl,
+  clerkSignInUrl,
+  clerkSignUpUrl,
   demoEntryUrl,
 } from "@/lib/auth-config";
 
 type CtaProps = {
   className?: string;
   children: ReactNode;
+  /** Runs before the CTA leaves the page, e.g. to close the mobile menu. */
+  onNavigate?: () => void;
 };
+
+type ClerkCtaProps = CtaProps & { mode: "signIn" | "signUp" };
+
+/**
+ * A real link to the hosted Clerk page that upgrades itself to Clerk's modal
+ * once the client is ready.
+ *
+ * The anchor is deliberate: before hydration (or if clerk-js is blocked) the
+ * click still navigates to `/sign-in` / `/sign-up`, so the CTA can never look
+ * dead. When a session already exists Clerk refuses to render a sign-in modal
+ * in single-session mode, so the CTA opens the workspace instead of no-oping.
+ */
+function ClerkCta({ mode, className, children, onNavigate }: ClerkCtaProps) {
+  const { isLoaded, isSignedIn } = useAuth();
+  const clerk = useClerk();
+  const router = useRouter();
+  const href = mode === "signIn" ? clerkSignInUrl : clerkSignUpUrl;
+
+  const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (
+      event.defaultPrevented ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    ) {
+      return;
+    }
+
+    if (isLoaded && isSignedIn) {
+      event.preventDefault();
+      onNavigate?.();
+      router.push(clerkSignedInUrl);
+      return;
+    }
+
+    // Clerk has not hydrated yet, so a modal would never appear. Let the
+    // anchor do its job and load the real sign-in/sign-up page.
+    if (!isLoaded) {
+      onNavigate?.();
+      return;
+    }
+
+    event.preventDefault();
+    onNavigate?.();
+    try {
+      if (mode === "signIn") {
+        clerk.openSignIn({ fallbackRedirectUrl: clerkAfterAuthUrl });
+      } else {
+        clerk.openSignUp({ fallbackRedirectUrl: clerkAfterAuthUrl });
+      }
+    } catch {
+      // Any modal failure still lands on the hosted Clerk page.
+      router.push(href);
+    }
+  };
+
+  return (
+    <a href={href} onClick={handleClick} className={className}>
+      {children}
+    </a>
+  );
+}
 
 /**
  * "Try Visun" — opens Clerk's sign-in modal when Clerk is configured. Without
  * a publishable key the product intentionally falls back to the demo workspace.
  */
-export function SignInCta({ className, children }: CtaProps) {
+export function SignInCta({ className, children, onNavigate }: CtaProps) {
   if (!clerkEnabled) {
     return (
-      <Link href={demoEntryUrl} className={className}>
+      <Link href={demoEntryUrl} className={className} onClick={onNavigate}>
         {children}
       </Link>
     );
   }
   return (
-    <SignInButton
-      mode="modal"
-      fallbackRedirectUrl={clerkAfterAuthUrl}
-      signUpFallbackRedirectUrl={clerkAfterAuthUrl}
-    >
-      <button type="button" className={className}>
-        {children}
-      </button>
-    </SignInButton>
+    <ClerkCta mode="signIn" className={className} onNavigate={onNavigate}>
+      {children}
+    </ClerkCta>
   );
 }
 
 /** "Get started" / "Sign up" — opens Clerk's sign-up modal. */
-export function SignUpCta({ className, children }: CtaProps) {
+export function SignUpCta({ className, children, onNavigate }: CtaProps) {
   if (!clerkEnabled) {
     return (
-      <Link href={demoEntryUrl} className={className}>
+      <Link href={demoEntryUrl} className={className} onClick={onNavigate}>
         {children}
       </Link>
     );
   }
   return (
-    <SignUpButton
-      mode="modal"
-      fallbackRedirectUrl={clerkAfterAuthUrl}
-      signInFallbackRedirectUrl={clerkAfterAuthUrl}
-    >
-      <button type="button" className={className}>
-        {children}
-      </button>
-    </SignUpButton>
+    <ClerkCta mode="signUp" className={className} onNavigate={onNavigate}>
+      {children}
+    </ClerkCta>
   );
 }
 
