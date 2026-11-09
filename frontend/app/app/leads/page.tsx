@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { format } from "date-fns";
 import {
   ArrowUpRight,
   ChevronLeft,
@@ -25,6 +26,7 @@ import {
   useToast,
 } from "@/components/ui";
 import { useAppStore } from "@/lib/store";
+import { DEMO_DATE } from "@/lib/demo-data";
 import type { Lead, LeadStage } from "@/lib/types";
 import {
   cn,
@@ -49,7 +51,8 @@ const stageTone: Record<LeadStage, string> = {
 export default function LeadsPage() {
   const router = useRouter();
   const { push } = useToast();
-  const { state, addLead, moveLead } = useAppStore();
+  const { state, addLead, moveLead, isDemo } = useAppStore();
+  const todayIso = isDemo ? DEMO_DATE : format(new Date(), "yyyy-MM-dd");
   const [query, setQuery] = useState("");
   const [source, setSource] = useState("all");
   const [todayOnly, setTodayOnly] = useState(false);
@@ -63,7 +66,7 @@ export default function LeadsPage() {
     interest: "",
     value: "2400",
     nextAction: "Send a scope questionnaire",
-    nextActionAt: "2026-11-05",
+    nextActionAt: "",
   });
 
   const sources = useMemo(
@@ -76,7 +79,7 @@ export default function LeadsPage() {
     return state.leads
       .filter((lead) => (source === "all" ? true : lead.source === source))
       .filter((lead) =>
-        todayOnly ? lead.receivedAt.startsWith("2026-11-03") : true,
+        todayOnly ? lead.receivedAt.startsWith(todayIso) : true,
       )
       .filter((lead) =>
         term
@@ -86,7 +89,7 @@ export default function LeadsPage() {
           : true,
       )
       .sort((a, b) => b.receivedAt.localeCompare(a.receivedAt));
-  }, [query, source, state.leads, todayOnly]);
+  }, [query, source, state.leads, todayIso, todayOnly]);
 
   const detail = detailId
     ? state.leads.find((lead) => lead.id === detailId)
@@ -96,7 +99,7 @@ export default function LeadsPage() {
     state.leads.filter((lead) => lead.stage !== "won").map((lead) => lead.value),
   );
   const todayLeads = state.leads.filter((lead) =>
-    lead.receivedAt.startsWith("2026-11-03"),
+    lead.receivedAt.startsWith(todayIso),
   );
   const proposalLeads = state.leads.filter((lead) => lead.stage === "proposal");
   const wonLeads = state.leads.filter((lead) => lead.stage === "won");
@@ -135,7 +138,7 @@ export default function LeadsPage() {
       receivedAt: new Date().toISOString(),
       interest: form.interest.trim() || "Interested in a new project.",
       nextAction: form.nextAction.trim() || "Follow up",
-      nextActionAt: `${form.nextActionAt}T10:00:00+05:30`,
+      nextActionAt: `${form.nextActionAt || todayIso}T10:00:00+05:30`,
       value: Number(form.value) || 0,
     };
     addLead(lead);
@@ -153,7 +156,7 @@ export default function LeadsPage() {
       interest: "",
       value: "2400",
       nextAction: "Send a scope questionnaire",
-      nextActionAt: "2026-11-05",
+      nextActionAt: "",
     });
   };
 
@@ -627,7 +630,7 @@ export default function LeadsPage() {
             </div>
 
             <p className="rounded-xl bg-[#f8f6f1] px-3 py-2.5 text-[10px] leading-relaxed text-muted">
-              Assignee: Ayush Paroha. Source records are manually entered or
+              Assignee: demo_user. Source records are manually entered or
               imported in this demo — no external prospecting tool is connected.
             </p>
           </div>
@@ -661,7 +664,7 @@ export default function LeadsPage() {
             <input
               value={form.name}
               onChange={(event) => setForm({ ...form, name: event.target.value })}
-              placeholder="Nina Patel"
+              placeholder="Client name"
               className="h-10 w-full rounded-lg border border-[#e2ded6] bg-[#f8f6f1] px-3 text-[12px] outline-none focus:border-orange focus:bg-white"
             />
           </label>
@@ -670,7 +673,7 @@ export default function LeadsPage() {
             <input
               value={form.company}
               onChange={(event) => setForm({ ...form, company: event.target.value })}
-              placeholder="Nina Patel Ceramics"
+              placeholder="Client company"
               className="h-10 w-full rounded-lg border border-[#e2ded6] bg-[#f8f6f1] px-3 text-[12px] outline-none focus:border-orange focus:bg-white"
             />
           </label>

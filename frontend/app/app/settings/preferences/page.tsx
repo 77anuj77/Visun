@@ -24,7 +24,6 @@ import {
   Switch,
   useToast,
 } from "@/components/ui";
-import { workspace } from "@/lib/demo-data";
 import { useAppStore } from "@/lib/store";
 import type { Preferences } from "@/lib/types";
 import { cn, formatDate, relativeTime } from "@/lib/utils";
@@ -60,6 +59,7 @@ const shortcuts = [
 export default function PreferencesPage() {
   const {
     state,
+    profile,
     hydrated,
     updatePreferences,
     resetDemo,
@@ -106,7 +106,7 @@ export default function PreferencesPage() {
     try {
       const payload = {
         exportedAt: new Date().toISOString(),
-        workspace: workspace.name,
+        workspace: profile.workspace,
         note: "Demo workspace exported from the browser. Contains sample data only.",
         state,
       };
@@ -367,7 +367,7 @@ export default function PreferencesPage() {
               <dl className="space-y-2 text-[10.5px]">
                 <div className="flex justify-between gap-2">
                   <dt className="text-muted">Workspace</dt>
-                  <dd className="font-medium">{workspace.name}</dd>
+                  <dd className="font-medium">{profile.workspace}</dd>
                 </div>
                 <div className="flex justify-between gap-2">
                   <dt className="text-muted">Records</dt>

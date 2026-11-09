@@ -99,7 +99,7 @@ def persist_turn(
         session.add(conversation)
         session.commit()
 
-    reply = configured_agent().respond(
+    reply = configured_agent(session, principal.workspace_id).respond(
         session=session,
         principal=principal,
         message=user_text,

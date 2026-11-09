@@ -43,7 +43,16 @@ class ScopeReviewRequest(BaseModel):
 
 
 class ProjectCreate(BaseModel):
-    client_id: str
+    """Either an existing `client_id` or the details for a new client.
+
+    Manual project entry must work in a workspace with no CRM integration, so a
+    first project can create its client inline instead of requiring one first.
+    """
+
+    client_id: str | None = Field(default=None, max_length=80)
+    client_name: str = Field(default="", max_length=120)
+    client_company: str = Field(default="", max_length=160)
+    client_email: str = Field(default="", max_length=254)
     name: str = Field(min_length=1, max_length=160)
     codename: str = Field(default="", max_length=80)
     description: str = Field(default="", max_length=2000)
@@ -53,8 +62,37 @@ class ProjectCreate(BaseModel):
     due_at: str | None = None
 
 
+class ProjectUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=160)
+    codename: str | None = Field(default=None, max_length=80)
+    description: str | None = Field(default=None, max_length=2000)
+    status: Literal["active", "review", "paused", "completed"] | None = None
+    currency: str | None = Field(default=None, max_length=8)
+    budget: float | None = Field(default=None, ge=0)
+    due_at: str | None = None
+    client_id: str | None = Field(default=None, max_length=80)
+
+
+class MilestoneCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=160)
+    due_at: str
+    status: Literal["done", "in_progress", "upcoming", "blocked"] = "upcoming"
+    value: float = Field(default=0, ge=0)
+    acceptance: str = Field(default="", max_length=1000)
+
+
+class MilestoneUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=160)
+    due_at: str | None = None
+    status: Literal["done", "in_progress", "upcoming", "blocked"] | None = None
+    value: float | None = Field(default=None, ge=0)
+    acceptance: str | None = Field(default=None, max_length=1000)
+
+
 class ReportPreviewRequest(BaseModel):
-    project_id: str
+    """`project_id=None` builds a workspace-wide report from every project."""
+
+    project_id: str | None = None
     period: str | None = Field(default=None, max_length=120)
     include_narrative: bool = True
 
@@ -128,6 +166,22 @@ class ReportSendRequest(BaseModel):
 
 class IntegrationToggle(BaseModel):
     connected: bool
+
+
+class IntegrationCredentialsUpdate(BaseModel):
+    """Values keyed by the provider spec field names (`client_id`, `bot_token`…)."""
+
+    values: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("values")
+    @classmethod
+    def strip_values(cls, value: dict[str, str]) -> dict[str, str]:
+        if len(value) > 12:
+            raise ValueError("Too many credential fields.")
+        for key, item in value.items():
+            if len(key) > 40 or len(str(item)) > 4000:
+                raise ValueError("Credential value is too long.")
+        return value
 
 
 class PreferencesUpdate(BaseModel):

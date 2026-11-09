@@ -90,6 +90,7 @@ class Settings(BaseSettings):
     # Telegram
     telegram_bot_token: str = ""
     telegram_webhook_secret: str = ""
+    discord_bot_token: str = ""
     telegram_allowed_chat_ids: str = ""
     telegram_chat_project_map: str = "{}"
 
@@ -151,6 +152,10 @@ class Settings(BaseSettings):
     @property
     def telegram_configured(self) -> bool:
         return bool(self.telegram_bot_token and self.telegram_webhook_secret)
+
+    @property
+    def discord_configured(self) -> bool:
+        return bool(self.discord_bot_token)
 
     @property
     def gemini_configured(self) -> bool:

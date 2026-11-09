@@ -39,6 +39,16 @@ export function Sidebar({
 }) {
   const pathname = usePathname();
   const badges = useBadges();
+  // Real workspace identity. The demo workspace is the only place these
+  // values come from the seeded snapshot; a signed-in workspace reads its own
+  // name, plan, and owner from bootstrap.
+  const { profile, isDemo } = useAppStore();
+  const initialsOf = (value: string, fallback: string) => {
+    const words = value.trim().split(/\s+/).filter(Boolean);
+    if (words.length === 0) return fallback;
+    if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+    return `${words[0][0]}${words[1][0]}`.toUpperCase();
+  };
 
   const isActive = (href: string) =>
     href === "/app" ? pathname === "/app" : pathname.startsWith(href);
@@ -156,19 +166,23 @@ export function Sidebar({
               "flex w-full items-center gap-2.5 rounded-xl border border-[#d7d1c6] bg-[#f1eee8] px-2.5 py-2 text-left transition hover:bg-[#f5f2ec]",
               collapsed && "justify-center border-0 bg-transparent px-0",
             )}
-            title={collapsed ? "Paroha Studio — demo workspace" : undefined}
+            title={
+              collapsed
+                ? `${profile.workspace} — ${isDemo ? "demo workspace" : profile.plan}`
+                : undefined
+            }
           >
             <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-ink font-mono text-[10px] font-medium text-canvas">
-              PS
+              {initialsOf(profile.workspace, "WS")}
             </span>
             {!collapsed ? (
               <>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[12.5px] font-semibold leading-tight">
-                    Paroha Studio
+                    {profile.workspace}
                   </span>
-                  <span className="block text-[10.5px] text-muted">
-                    Solo workspace
+                  <span className="block truncate text-[10.5px] text-muted">
+                    {profile.plan}
                   </span>
                 </span>
                 <ChevronDown size={14} className="text-muted" />
@@ -184,7 +198,7 @@ export function Sidebar({
         </nav>
 
         <div className="shrink-0 border-t border-[#d7d1c6] p-3">
-          {!collapsed ? (
+          {!collapsed && isDemo ? (
             <div className="mb-3 rounded-xl border border-[#d5cfc4] bg-[#f2efe9] p-3">
               <div className="flex items-center gap-2 text-[11px] font-semibold text-[#6b5a15]">
                 <ShieldCheck size={14} className="text-[#8a6d00]" />
@@ -202,13 +216,19 @@ export function Sidebar({
               collapsed && "justify-center",
             )}
           >
-            <Avatar name="Ayush Paroha" initials="AP" hue="orange" />
+            <Avatar
+              name={profile.name}
+              initials={initialsOf(profile.name, "ME")}
+              hue="orange"
+            />
             {!collapsed ? (
               <div className="min-w-0 flex-1">
                 <p className="truncate text-[12.5px] font-semibold leading-tight">
-                  Ayush Paroha
+                  {profile.name}
                 </p>
-                <p className="truncate text-[10.5px] text-muted">Owner</p>
+                <p className="truncate text-[10.5px] text-muted">
+                  {profile.email || "Owner"}
+                </p>
               </div>
             ) : null}
             {!collapsed ? (

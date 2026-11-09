@@ -108,7 +108,7 @@ export function CommandPalette({
         label: "Draft the overdue invoice reminder",
         hint: "Creates a preview — sends nothing",
         icon: MailPlus,
-        run: () => ask("Draft a reminder for the overdue Okafor invoice."),
+        run: () => ask("Draft a reminder for the overdue invoice."),
       },
       {
         id: "generate-report",
@@ -125,7 +125,7 @@ export function CommandPalette({
         id: "open-inbox",
         group: "Workspace",
         label: "Review scope inbox",
-        hint: "3 findings need attention",
+        hint: "Review scope findings",
         icon: Inbox,
         run: () => {
           router.push("/app/inbox");

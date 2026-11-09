@@ -25,9 +25,9 @@ import {
   Panel,
   useToast,
 } from "@/components/ui";
-import { DEMO_DATE, DEMO_NOW, projects } from "@/lib/demo-data";
+import { DEMO_DATE, DEMO_NOW } from "@/lib/demo-data";
 import { useAppStore } from "@/lib/store";
-import type { ActivityEvent } from "@/lib/types";
+import type { ActivityEvent, Project } from "@/lib/types";
 import { cn, formatDate, formatTime, relativeTime } from "@/lib/utils";
 
 const typeMeta: Record<
@@ -67,7 +67,11 @@ type RangeId = (typeof ranges)[number]["id"];
 const selectClass =
   "h-9 rounded-lg border border-[#e2ded6] bg-[#f8f6f1] px-2 text-[11.5px] text-ink outline-none transition focus:border-[#c8c1b4] focus:bg-white";
 
-function parametersFor(event: ActivityEvent) {
+function parametersFor(
+  event: ActivityEvent,
+  projects: Project[],
+  workspaceName: string,
+) {
   const project = projects.find((item) => item.id === event.projectId);
   switch (event.type) {
     case "scope":
@@ -112,7 +116,7 @@ function parametersFor(event: ActivityEvent) {
     case "approval":
       return {
         action: event.reference ?? "—",
-        approved_by: "Ayush Paroha",
+        approved_by: "demo_user",
         idempotency_key: "idem_7f2c…9a1",
         execution: event.status === "pending" ? "queued" : "completed",
       };
@@ -126,21 +130,21 @@ function parametersFor(event: ActivityEvent) {
     case "ingest":
       return {
         source: "Telegram Bot API",
-        chat: "Northwind project group",
+        chat: "Opted-in project group",
         consent_scope: "opted-in group only",
         stored_messages: 1,
       };
     default:
       return {
-        workspace: "Paroha Studio",
-        mode: "demo",
-        seed: "2026-11-03",
+        workspace: workspaceName,
+        mode: "local",
       };
   }
 }
 
 export default function ActivityPage() {
-  const { state } = useAppStore();
+  const { state, profile } = useAppStore();
+  const projects = state.reference.projects;
   const { push } = useToast();
   const [type, setType] = useState<"all" | ActivityEvent["type"]>("all");
   const [projectId, setProjectId] = useState("all");
@@ -229,7 +233,7 @@ export default function ActivityPage() {
       status: detail.status,
       reference: detail.reference ?? null,
       project: detailProject?.codename ?? null,
-      parameters: parametersFor(detail),
+      parameters: parametersFor(detail, projects, profile.workspace),
       redaction: "Secrets are redacted before storage.",
     };
     try {
@@ -580,7 +584,11 @@ export default function ActivityPage() {
             <div>
               <p className="eyebrow !text-[8.5px]">Tool parameters · secrets redacted</p>
               <pre className="mt-2 overflow-x-auto rounded-xl border border-[#e6e1d8] bg-[#1d1d1d] p-3.5 font-mono text-[10px] leading-relaxed text-[#e9e6df]">
-                {JSON.stringify(parametersFor(detail), null, 2)}
+                {JSON.stringify(
+                  parametersFor(detail, projects, profile.workspace),
+                  null,
+                  2,
+                )}
               </pre>
               <p className="mt-1.5 text-[9.5px] leading-relaxed text-muted">
                 API keys, OAuth tokens, and message bodies are masked. This demo
@@ -600,7 +608,7 @@ export default function ActivityPage() {
                   {
                     label:
                       detail.type === "approval" || detail.type === "email"
-                        ? "Approved by Ayush Paroha"
+                        ? "Approved by demo_user"
                         : "Approval not required",
                     detail:
                       detail.type === "approval" || detail.type === "email"

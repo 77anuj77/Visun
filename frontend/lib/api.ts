@@ -12,10 +12,14 @@
 import type {
   ActivityEvent,
   AppState,
+  WorkspaceReference,
   ChatMessage,
+  Client,
   Lead,
   LeadStage,
+  Milestone,
   Preferences,
+  Project,
   ProposedAction,
   Report,
 } from "./types";
@@ -45,12 +49,60 @@ export type BootstrapResponse = {
   };
   user: { id: string; name: string; email: string; timezone: string };
   state: AppState;
+  reference?: WorkspaceReference;
   providers?: Record<string, ProviderStatus>;
   agent?: {
     backend: "deterministic" | "gemini";
     geminiConfigured: boolean;
     groundedTools: boolean;
   };
+};
+
+export type CredentialField = {
+  key: string;
+  label: string;
+  envVar: string;
+  secret?: boolean;
+  options?: string[];
+  default?: string;
+  placeholder?: string;
+  configured: boolean;
+  preview: string | null;
+  value: string | null;
+};
+
+export type CredentialStatus = {
+  provider: string;
+  label: string;
+  docs: string;
+  fields: CredentialField[];
+  /** Where a provider call would read its keys from right now. */
+  source: "workspace" | "environment" | null;
+  configured: boolean;
+  encryptionReady: boolean;
+  updatedAt: string | null;
+};
+
+export type ReportPreview = {
+  projectId: string | null;
+  workspaceId: string;
+  label: string;
+  title: string;
+  period: string;
+  facts: string[];
+  summary: string;
+  narrative: string;
+  sources: Record<string, { kind: string; id: string; label: string }[]>;
+  empty: boolean;
+};
+
+export type ProviderTestResult = {
+  provider: string;
+  source: "workspace" | "environment" | null;
+  ok: boolean;
+  detail: string;
+  identity: string | null;
+  checkedAt: string;
 };
 
 export type HealthResponse = {
@@ -91,12 +143,63 @@ type ApiAuth = {
 let apiAuth: ApiAuth = {};
 
 /**
+ * Providers configure auth from a `useEffect`, while page components can fire
+ * their own requests from child effects that run first. Without a gate the very
+ * first credential-status call leaves before the demo header / bearer token is
+ * wired and the backend answers 401. Track readiness and let early requests
+ * wait for the provider instead of guessing.
+ */
+let apiAuthReady = false;
+let authWaiters: Array<() => void> = [];
+const AUTH_WAIT_MS = 1200;
+
+function releaseAuthWaiters() {
+  const waiters = authWaiters;
+  authWaiters = [];
+  for (const resolve of waiters) resolve();
+}
+
+/** Resolves once a provider has configured auth, or after a short fallback. */
+function waitForApiAuth(): Promise<void> {
+  if (apiAuthReady) return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      authWaiters = authWaiters.filter((waiter) => waiter !== done);
+      resolve();
+    }, AUTH_WAIT_MS);
+    authWaiters.push(done);
+  });
+}
+
+/**
  * Wired by the workspace providers. Clerk mode forwards a short-lived bearer
  * token; demo mode sends `X-Visun-Demo` so a Clerk-protected deployment can
  * still expose the seeded demo workspace when `ALLOW_PUBLIC_DEMO=true`.
  */
 export function configureApiAuth(next: ApiAuth | null) {
   apiAuth = next ?? {};
+  apiAuthReady = next !== null;
+  if (next) releaseAuthWaiters();
+}
+
+/** Attaches the configured credential once the provider has settled. */
+async function applyAuthHeaders(headers: Headers): Promise<void> {
+  await waitForApiAuth();
+  if (apiAuth.demo) {
+    headers.set("X-Visun-Demo", "1");
+  } else if (apiAuth.getToken) {
+    try {
+      const token = await apiAuth.getToken();
+      if (token) headers.set("Authorization", `Bearer ${token}`);
+    } catch {
+      // Clerk may not have hydrated yet. The backend returns 401 and the store
+      // surfaces an honest offline state instead of inventing data.
+    }
+  }
 }
 
 async function request<T>(
@@ -109,17 +212,7 @@ async function request<T>(
   try {
     const headers = new Headers(init.headers);
     headers.set("Content-Type", "application/json");
-    if (apiAuth.demo) {
-      headers.set("X-Visun-Demo", "1");
-    } else if (apiAuth.getToken) {
-      try {
-        const token = await apiAuth.getToken();
-        if (token) headers.set("Authorization", `Bearer ${token}`);
-      } catch {
-        // Clerk may not have hydrated yet. The backend returns 401 and the
-        // store surfaces an honest offline state instead of inventing data.
-      }
-    }
+    await applyAuthHeaders(headers);
 
     const response = await fetch(`${BASE}${path}`, {
       ...init,
@@ -232,6 +325,82 @@ export const api = {
       body: JSON.stringify(update),
     }),
 
+  createProject: (payload: {
+    name: string;
+    client_id?: string;
+    client_name?: string;
+    client_company?: string;
+    client_email?: string;
+    codename?: string;
+    description?: string;
+    status?: Project["status"];
+    currency?: string;
+    budget?: number;
+    due_at?: string | null;
+  }) =>
+    request<{ project: Project; client: Client }>("/projects", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  updateProject: (
+    id: string,
+    payload: {
+      name?: string;
+      codename?: string;
+      description?: string;
+      status?: Project["status"];
+      currency?: string;
+      budget?: number;
+      due_at?: string | null;
+      client_id?: string;
+    },
+  ) =>
+    request<{ project: Project }>(`/projects/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+
+  deleteProject: (id: string) =>
+    request<{ deleted: boolean; id: string }>(`/projects/${id}`, {
+      method: "DELETE",
+    }),
+
+  createMilestone: (
+    projectId: string,
+    payload: {
+      title: string;
+      due_at: string;
+      status?: Milestone["status"];
+      value?: number;
+      acceptance?: string;
+    },
+  ) =>
+    request<{ milestone: Milestone }>(`/projects/${projectId}/milestones`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  updateMilestone: (
+    id: string,
+    payload: {
+      title?: string;
+      due_at?: string;
+      status?: Milestone["status"];
+      value?: number;
+      acceptance?: string;
+    },
+  ) =>
+    request<{ milestone: Milestone }>(`/milestones/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+
+  deleteMilestone: (id: string) =>
+    request<{ deleted: boolean; id: string }>(`/milestones/${id}`, {
+      method: "DELETE",
+    }),
+
   createReport: (report: Report) =>
     request<{ report: Report }>("/reports", {
       method: "POST",
@@ -244,15 +413,74 @@ export const api = {
       }),
     }),
 
+  previewReport: (payload: {
+    project_id?: string | null;
+    period?: string | null;
+    include_narrative?: boolean;
+  }) =>
+    request<ReportPreview>("/reports/preview", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
   prepareReportSend: (id: string) =>
     request<{ action: ProposedAction }>(`/reports/${id}/send`, {
       method: "POST",
     }),
 
+  /** Fetch the server-rendered PDF for a stored report. */
+  downloadReport: async (
+    id: string,
+  ): Promise<{ ok: true; blob: Blob; filename: string } | { ok: false; error: string }> => {
+    try {
+      const headers = new Headers();
+      await applyAuthHeaders(headers);
+      const response = await fetch(`${BASE}/reports/${id}/pdf`, {
+        headers,
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        return { ok: false, error: `Report download failed (HTTP ${response.status}).` };
+      }
+      const disposition = response.headers.get("Content-Disposition") ?? "";
+      const match = /filename="?([^";]+)"?/.exec(disposition);
+      return {
+        ok: true,
+        blob: await response.blob(),
+        filename: match?.[1] ?? `report-${id}.pdf`,
+      };
+    } catch {
+      return { ok: false, error: "The backend is unreachable. Nothing was downloaded." };
+    }
+  },
+
   toggleIntegration: (provider: string, connected: boolean) =>
     request<{ integration: unknown }>(
       `/integrations/${provider}/toggle?connected=${connected}`,
       { method: "POST" },
+    ),
+
+  credentialStatus: (provider: string) =>
+    request<CredentialStatus>(`/integrations/${provider}/credentials`),
+
+  saveCredentials: (provider: string, values: Record<string, string>) =>
+    request<CredentialStatus>(`/integrations/${provider}/credentials`, {
+      method: "PUT",
+      body: JSON.stringify({ values }),
+    }),
+
+  clearCredentials: (provider: string) =>
+    request<CredentialStatus & { removed: boolean }>(
+      `/integrations/${provider}/credentials`,
+      { method: "DELETE" },
+    ),
+
+  /** Real read-only call to the provider; allow time for the network. */
+  testProvider: (provider: string) =>
+    request<ProviderTestResult>(
+      `/integrations/${provider}/test`,
+      { method: "POST" },
+      20000,
     ),
 
   updatePreferences: (update: Partial<Preferences>) =>

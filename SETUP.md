@@ -347,6 +347,13 @@ These are not required for the core demo:
 
 - **Gemini / Google ADK** — `GOOGLE_API_KEY`, `GEMINI_TEXT_MODEL`,
   `GEMINI_LIVE_MODEL`, `AGENT_BACKEND=gemini`, `VOICE_BACKEND=gemini_live`.
+  Install the optional runtime with `uv sync --extra agent` (the `google-adk`
+  and `google-genai` packages). Keys can also be saved per workspace in
+  **Settings → Integrations → AI model configuration**, where they are encrypted
+  with `APP_ENCRYPTION_KEY`. `Test connection` validates the key and checks that
+  the text model advertises `generateContent` and the live model advertises
+  `bidiGenerateContent` — a model name containing "live" is not treated as proof.
+  When no model is configured the deterministic engine answers instead and says so.
 - **Gmail / Google Calendar** — `GOOGLE_OAUTH_CLIENT_ID`,
   `GOOGLE_OAUTH_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN`, redirect URI
   `http://localhost:8000/api/v1/integrations/google/callback`.
@@ -354,6 +361,17 @@ These are not required for the core demo:
   chat-to-project map.
 
 Each starts in simulated mode and must be explicitly switched to real mode.
+
+### 6.1 Workspace data policy
+
+- The sample dataset is seeded **only** for Clerk user
+  `user_3LdlhPMLYUPRYRxwuKHimR5nCK1` (and the credential-free demo workspace).
+  The seed is idempotent and never overwrites records the user already owns.
+- Every other account starts with a completely empty workspace. Nothing is
+  copied in, so a new user sees their own (empty) data only.
+- Reports are rendered as PDFs with ReportLab (a hard dependency) from the
+  workspace's stored milestones, invoices, and findings. A workspace without
+  records produces an honest empty report, not sample figures.
 
 ---
 

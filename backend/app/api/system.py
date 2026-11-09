@@ -57,7 +57,7 @@ def bootstrap(session: SessionDep, principal: PrincipalDep) -> dict[str, Any]:
     payload["publicDemo"] = settings.allow_public_demo
     payload["providerMode"] = settings.provider_mode
     payload["providers"] = adapter_status()
-    payload["agent"] = agent_status()
+    payload["agent"] = agent_status(session, principal.workspace_id)
     return payload
 
 

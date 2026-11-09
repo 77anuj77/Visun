@@ -4,7 +4,7 @@ import uuid
 from datetime import timedelta
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
 from sqlmodel import Session, select
 
 from ..core.config import settings
@@ -18,20 +18,26 @@ from ..models import (
     Invoice,
     Lead,
     Milestone,
+    Payment,
     Preference,
     Project,
     Report,
     ScopeFinding,
+    Workspace,
     utcnow,
 )
 from ..schemas import (
     ActionPrepare,
     ActivityCreate,
     AgreementChangeRequest,
+    IntegrationCredentialsUpdate,
     LeadCreate,
     LeadUpdate,
+    MilestoneCreate,
+    MilestoneUpdate,
     PreferencesUpdate,
     ProjectCreate,
+    ProjectUpdate,
     ReportCreate,
     ReportPreviewRequest,
     ScopeReviewRequest,
@@ -39,15 +45,33 @@ from ..schemas import (
 from ..serializers import (
     activity_out,
     client_message_out,
+    client_out,
     finding_out,
     integration_out,
     invoice_out,
     lead_out,
     milestone_out,
+    project_out,
     report_out,
 )
 from ..services.actions import prepare_action, record_activity
+from ..services.credentials import (
+    PROVIDER_SPECS,
+    CredentialError,
+    clear_values,
+    credential_source,
+    credential_status,
+    resolve_values,
+    save_values,
+    verify_provider,
+)
 from ..services.providers import PayPalAdapter, ProviderError
+from ..services.reports import (
+    build_report_pdf,
+    project_facts,
+    report_preview,
+    workspace_facts,
+)
 from ..timeutil import dollars, parse_dt, to_iso
 
 router = APIRouter()
@@ -158,21 +182,72 @@ def list_projects(session: SessionDep, principal: PrincipalDep) -> dict[str, Any
     }
 
 
+CLIENT_HUES = ["orange", "stone", "yellow", "ink"]
+
+
+def _initials(*values: str) -> str:
+    """Two initials from the first value that has any letters in it."""
+    for value in values:
+        parts = [part for part in value.split() if part]
+        if parts:
+            return "".join(part[0].upper() for part in parts[:2])
+    return "VC"
+
+
+def _project_in_workspace(
+    session: Session, project_id: str, workspace_id: str
+) -> Project:
+    project = session.get(Project, project_id)
+    if project is None or project.workspace_id != workspace_id:
+        raise HTTPException(status_code=404, detail="Project not found in this workspace.")
+    return project
+
+
 @router.post("/projects", status_code=status.HTTP_201_CREATED, tags=["projects"])
 def create_project(
     payload: ProjectCreate, session: SessionDep, principal: WriterDep
 ) -> dict[str, Any]:
-    client = session.get(Client, payload.client_id)
-    if client is None or client.workspace_id != principal.workspace_id:
-        raise HTTPException(status_code=404, detail="Client not found in this workspace.")
+    """Manual project entry. Works with no provider connected.
+
+    An inline client is created when no `client_id` is supplied, so the very
+    first project in an empty workspace needs no CRM or integration setup.
+    """
+    if not payload.client_id and not (
+        payload.client_name.strip() and payload.client_company.strip()
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Provide an existing client, or a new client name and company.",
+        )
+    client: Client | None = None
+    if payload.client_id:
+        client = session.get(Client, payload.client_id)
+        if client is None or client.workspace_id != principal.workspace_id:
+            raise HTTPException(
+                status_code=404, detail="Client not found in this workspace."
+            )
+    else:
+        existing_clients = session.exec(
+            select(Client).where(Client.workspace_id == principal.workspace_id)
+        ).all()
+        client = Client(
+            id=f"c-{uuid.uuid4().hex[:10]}",
+            workspace_id=principal.workspace_id,
+            name=payload.client_name.strip(),
+            company=payload.client_company.strip(),
+            email=payload.client_email.strip(),
+            initials=_initials(payload.client_company, payload.client_name),
+            hue=CLIENT_HUES[len(existing_clients) % len(CLIENT_HUES)],
+        )
+        session.add(client)
     project = Project(
         id=f"p-{uuid.uuid4().hex[:10]}",
         workspace_id=principal.workspace_id,
-        client_id=payload.client_id,
-        name=payload.name,
-        codename=payload.codename or payload.name.upper()[:24],
+        client_id=client.id,
+        name=payload.name.strip(),
+        codename=(payload.codename or payload.name).strip().upper()[:24],
         status=payload.status,
-        description=payload.description,
+        description=payload.description.strip(),
         currency=payload.currency,
         budget_cents=round(payload.budget * 100),
         due_at=parse_dt(payload.due_at) if payload.due_at else utcnow() + timedelta(days=30),
@@ -184,14 +259,228 @@ def create_project(
         type="system",
         actor="You",
         title="Project created",
-        detail=f"{project.name} was added to the workspace.",
+        detail=f"{project.name} was added to the workspace manually.",
         status="success",
         reference=project.id,
         project_id=project.id,
     )
     session.commit()
     session.refresh(project)
-    return {"project": {"id": project.id, "name": project.name}, "sample": True}
+    session.refresh(client)
+    return {
+        "project": project_out(project),
+        "client": client_out(client),
+        "sample": True,
+    }
+
+
+@router.patch("/projects/{project_id}", tags=["projects"])
+def update_project(
+    project_id: str,
+    payload: ProjectUpdate,
+    session: SessionDep,
+    principal: WriterDep,
+) -> dict[str, Any]:
+    project = _project_in_workspace(session, project_id, principal.workspace_id)
+    if payload.client_id is not None:
+        client = session.get(Client, payload.client_id)
+        if client is None or client.workspace_id != principal.workspace_id:
+            raise HTTPException(
+                status_code=404, detail="Client not found in this workspace."
+            )
+        project.client_id = client.id
+    if payload.name is not None:
+        project.name = payload.name.strip()
+    if payload.codename is not None:
+        project.codename = payload.codename.strip() or project.name.upper()[:24]
+    if payload.description is not None:
+        project.description = payload.description.strip()
+    if payload.status is not None:
+        project.status = payload.status
+    if payload.currency is not None:
+        project.currency = payload.currency
+    if payload.budget is not None:
+        project.budget_cents = round(payload.budget * 100)
+    if payload.due_at is not None:
+        project.due_at = parse_dt(payload.due_at)
+    session.add(project)
+    record_activity(
+        session,
+        workspace_id=principal.workspace_id,
+        type="system",
+        actor="You",
+        title="Project updated",
+        detail=f"{project.name} was edited manually.",
+        status="info",
+        reference=project.id,
+        project_id=project.id,
+    )
+    session.commit()
+    session.refresh(project)
+    return {"project": project_out(project), "sample": True}
+
+
+@router.delete("/projects/{project_id}", tags=["projects"])
+def delete_project(
+    project_id: str, session: SessionDep, principal: WriterDep
+) -> dict[str, Any]:
+    """Remove a project and the records that only exist because of it."""
+    project = _project_in_workspace(session, project_id, principal.workspace_id)
+    name = project.name
+    deleted_id = project.id
+    for model, column in (
+        (Milestone, Milestone.project_id),
+        (Agreement, Agreement.project_id),
+        (ScopeFinding, ScopeFinding.project_id),
+        (ExternalMessage, ExternalMessage.project_id),
+        (Report, Report.project_id),
+    ):
+        for row in session.exec(select(model).where(column == project.id)).all():
+            session.delete(row)
+    invoices = session.exec(
+        select(Invoice).where(Invoice.project_id == project.id)
+    ).all()
+    for invoice in invoices:
+        for payment in session.exec(
+            select(Payment).where(Payment.invoice_id == invoice.id)
+        ).all():
+            session.delete(payment)
+        session.delete(invoice)
+    # Activity stays as history, but it must not point at a deleted project.
+    for event in session.exec(
+        select(ActivityEvent).where(ActivityEvent.project_id == project.id)
+    ).all():
+        event.project_id = None
+        session.add(event)
+    session.delete(project)
+    record_activity(
+        session,
+        workspace_id=principal.workspace_id,
+        type="system",
+        actor="You",
+        title="Project deleted",
+        detail=f"{name} and its milestones, invoices, and findings were removed from the workspace.",
+        status="info",
+        reference=deleted_id,
+    )
+    session.commit()
+    return {"deleted": True, "id": deleted_id, "sample": True}
+
+
+@router.post(
+    "/projects/{project_id}/milestones",
+    status_code=status.HTTP_201_CREATED,
+    tags=["projects"],
+)
+def create_milestone(
+    project_id: str,
+    payload: MilestoneCreate,
+    session: SessionDep,
+    principal: WriterDep,
+) -> dict[str, Any]:
+    project = _project_in_workspace(session, project_id, principal.workspace_id)
+    milestone = Milestone(
+        id=f"m-{uuid.uuid4().hex[:10]}",
+        project_id=project.id,
+        title=payload.title.strip(),
+        due_at=parse_dt(payload.due_at),
+        status=payload.status,
+        value_cents=round(payload.value * 100),
+        acceptance=payload.acceptance.strip(),
+    )
+    session.add(milestone)
+    record_activity(
+        session,
+        workspace_id=principal.workspace_id,
+        type="system",
+        actor="You",
+        title="Deadline added",
+        detail=f"{milestone.title} is due for {project.name}. Stored in this workspace only.",
+        status="success",
+        reference=milestone.id,
+        project_id=project.id,
+    )
+    session.commit()
+    session.refresh(milestone)
+    return {"milestone": milestone_out(milestone), "sample": True}
+
+
+@router.patch("/milestones/{milestone_id}", tags=["projects"])
+def update_milestone(
+    milestone_id: str,
+    payload: MilestoneUpdate,
+    session: SessionDep,
+    principal: WriterDep,
+) -> dict[str, Any]:
+    milestone = session.get(Milestone, milestone_id)
+    project = (
+        session.get(Project, milestone.project_id) if milestone is not None else None
+    )
+    if (
+        milestone is None
+        or project is None
+        or project.workspace_id != principal.workspace_id
+    ):
+        raise HTTPException(status_code=404, detail="Deadline not found.")
+    if payload.title is not None:
+        milestone.title = payload.title.strip()
+    if payload.due_at is not None:
+        milestone.due_at = parse_dt(payload.due_at)
+    if payload.status is not None:
+        milestone.status = payload.status
+    if payload.value is not None:
+        milestone.value_cents = round(payload.value * 100)
+    if payload.acceptance is not None:
+        milestone.acceptance = payload.acceptance.strip()
+    session.add(milestone)
+    record_activity(
+        session,
+        workspace_id=principal.workspace_id,
+        type="system",
+        actor="You",
+        title="Deadline updated",
+        detail=f"{milestone.title} was edited for {project.name}.",
+        status="info",
+        reference=milestone.id,
+        project_id=project.id,
+    )
+    session.commit()
+    session.refresh(milestone)
+    return {"milestone": milestone_out(milestone), "sample": True}
+
+
+@router.delete("/milestones/{milestone_id}", tags=["projects"])
+def delete_milestone(
+    milestone_id: str, session: SessionDep, principal: WriterDep
+) -> dict[str, Any]:
+    milestone = session.get(Milestone, milestone_id)
+    project = (
+        session.get(Project, milestone.project_id) if milestone is not None else None
+    )
+    if (
+        milestone is None
+        or project is None
+        or project.workspace_id != principal.workspace_id
+    ):
+        raise HTTPException(status_code=404, detail="Deadline not found.")
+    title = milestone.title
+    if project.next_deadline_id == milestone.id:
+        project.next_deadline_id = ""
+        session.add(project)
+    session.delete(milestone)
+    record_activity(
+        session,
+        workspace_id=principal.workspace_id,
+        type="system",
+        actor="You",
+        title="Deadline removed",
+        detail=f"{title} was removed from {project.name}.",
+        status="info",
+        reference=milestone_id,
+        project_id=project.id,
+    )
+    session.commit()
+    return {"deleted": True, "id": milestone_id, "sample": True}
 
 
 @router.get("/projects/{project_id}", tags=["projects"])
@@ -492,97 +781,21 @@ def list_reports(session: SessionDep, principal: PrincipalDep) -> dict[str, Any]
     return {"sample": True, "reports": [report_out(report) for report in reports]}
 
 
-def _report_facts(
-    session: Session, principal, project: Project
-) -> tuple[list[str], list[dict[str, Any]], list[dict[str, Any]]]:
-    milestones = session.exec(
-        select(Milestone)
-        .where(Milestone.project_id == project.id)
-        .order_by(Milestone.due_at)
-    ).all()
-    invoices = session.exec(
-        select(Invoice).where(Invoice.project_id == project.id).order_by(Invoice.due_at)
-    ).all()
-    findings = session.exec(
-        select(ScopeFinding)
-        .where(ScopeFinding.project_id == project.id)
-        .order_by(ScopeFinding.received_at.desc())
-    ).all()
-    facts: list[str] = []
-    done = [row for row in milestones if row.status == "done"]
-    for row in done:
-        facts.append(f"Completed {row.title} (due {row.due_at:%d %b %Y}).")
-    for invoice in invoices:
-        paid = invoice.amount_paid_cents / 100
-        amount = invoice.amount_cents / 100
-        if invoice.status == "paid":
-            facts.append(f"{invoice.number} paid in full (${amount:,.2f}).")
-        elif invoice.status == "draft":
-            facts.append(f"{invoice.number} remains a draft; nothing was sent.")
-        else:
-            facts.append(
-                f"{invoice.number}: ${amount:,.2f} billed, ${paid:,.2f} received, "
-                f"status {invoice.status}."
-            )
-    for finding in findings:
-        facts.append(
-            f"Scope finding '{finding.title}' is {finding.review_state} "
-            f"(clause {finding.clause_id})."
-        )
-    return facts, [
-        {"kind": "Milestone", "id": row.id, "label": row.title} for row in milestones
-    ], [
-        {"kind": "Invoice", "id": row.id, "label": row.number} for row in invoices
-    ]
-
-
 @router.post("/reports/preview", tags=["reports"])
 def preview_report(
     payload: ReportPreviewRequest, session: SessionDep, principal: PrincipalDep
 ) -> dict[str, Any]:
-    project = session.get(Project, payload.project_id)
-    if project is None or project.workspace_id != principal.workspace_id:
-        raise HTTPException(status_code=404, detail="Project not found in this workspace.")
-    facts, milestones, invoices = _report_facts(session, principal, project)
-    findings = session.exec(
-        select(ScopeFinding).where(ScopeFinding.project_id == project.id)
-    ).all()
-    open_findings = [row for row in findings if row.review_state in {"potential", "reviewing"}]
-    template = (
-        f"{project.name}: {project.progress}% complete. "
-        f"{len(facts)} record-backed fact(s) included. "
-        f"{len(open_findings)} scope question(s) remain open."
-    )
-    narrative = template
-    if payload.include_narrative and settings.gemini_configured:
-        # The narrative is a rephrasing of facts only; it never adds figures.
-        try:
-            from google import genai
-            from google.genai import types
-
-            client = genai.Client(api_key=settings.google_api_key)
-            response = client.models.generate_content(
-                model=settings.gemini_text_model,
-                contents=(
-                    "Write a short client progress narrative using only these facts. "
-                    "Do not invent numbers or claims. Facts:\n" + "\n".join(facts)
-                ),
-                config=types.GenerateContentConfig(temperature=0.2),
-            )
-            narrative = (response.text or template).strip()
-        except Exception:  # noqa: BLE001
-            narrative = template
-    return {
-        "sample": True,
-        "projectId": project.id,
-        "title": f"{project.codename or project.name} — progress report",
-        "period": payload.period or utcnow().strftime("%B %Y"),
-        "facts": facts,
-        "summary": narrative,
-        "narrative": narrative if payload.include_narrative else "",
-        "sources": {"milestones": milestones, "invoices": invoices},
-        "openFindings": len(open_findings),
-    }
+    """Facts for a report, from this workspace only. Persists nothing."""
+    try:
+        return report_preview(
+            session,
+            principal.workspace_id,
+            project_id=payload.project_id,
+            period=payload.period,
+            include_narrative=payload.include_narrative,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/reports", status_code=status.HTTP_201_CREATED, tags=["reports"])
@@ -592,6 +805,17 @@ def create_report(
     project = session.get(Project, payload.project_id)
     if project is None or project.workspace_id != principal.workspace_id:
         raise HTTPException(status_code=404, detail="Project not found in this workspace.")
+    # An empty summary is filled from stored records rather than left blank, so a
+    # report created by the agent or a direct API call is still source-backed.
+    summary = payload.summary.strip()
+    if not summary:
+        summary = report_preview(
+            session,
+            principal.workspace_id,
+            project_id=project.id,
+            period=payload.period or None,
+            include_narrative=False,
+        )["summary"]
     report = Report(
         id=f"rep-{uuid.uuid4().hex[:10]}",
         workspace_id=principal.workspace_id,
@@ -599,7 +823,7 @@ def create_report(
         project_id=project.id,
         client_id=project.client_id,
         period=payload.period,
-        summary=payload.summary,
+        summary=summary,
         pages=payload.pages,
         status="draft",
     )
@@ -651,6 +875,39 @@ def prepare_report_send(
     return {"action": {"id": action.id, "status": action.status, "canonicalHash": action.canonical_hash}, "sample": True}
 
 
+@router.get("/reports/{report_id}/pdf", tags=["reports"])
+def download_report_pdf(
+    report_id: str, session: SessionDep, principal: PrincipalDep
+) -> Response:
+    """Render the stored report to PDF from this workspace's current records."""
+    report = session.get(Report, report_id)
+    if report is None or report.workspace_id != principal.workspace_id:
+        raise HTTPException(status_code=404, detail="Report not found.")
+    project = session.get(Project, report.project_id)
+    client = session.get(Client, report.client_id)
+    workspace = session.get(Workspace, principal.workspace_id)
+    facts = (
+        project_facts(session, project)[0]
+        if project is not None
+        else workspace_facts(session, principal.workspace_id)
+    )
+    pdf = build_report_pdf(
+        report=report,
+        project=project,
+        client=client,
+        workspace=workspace,
+        facts=facts,
+    )
+    stem = "".join(
+        character if character.isalnum() or character in {"-", "_"} else "-"
+        for character in report.title.lower()
+    ).strip("-")[:60] or "report"
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{stem}.pdf"'},    )
+
+
 @router.get("/integrations", tags=["integrations"])
 def list_integrations(
     session: SessionDep, principal: PrincipalDep
@@ -660,10 +917,17 @@ def list_integrations(
             IntegrationConnection.workspace_id == principal.workspace_id
         )
     ).all()
+    items = []
+    for row in integrations:
+        item = integration_out(row)
+        item["credentialSource"] = credential_source(
+            session, principal.workspace_id, row.provider
+        )
+        items.append(item)
     return {
         "sample": True,
         "providerMode": settings.provider_mode,
-        "integrations": [integration_out(row) for row in integrations],
+        "integrations": items,
     }
 
 
@@ -719,6 +983,121 @@ def toggle_integration(
     session.commit()
     session.refresh(integration)
     return {"integration": integration_out(integration), "sample": True}
+
+
+def _reject_shared_demo(principal: PrincipalDep) -> None:
+    """The publicly reachable demo workspace must never hold real secrets."""
+    from ..seed import WORKSPACE_ID
+
+    if principal.workspace_id == WORKSPACE_ID:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Provider credentials are disabled in the shared demo workspace. "
+                "Sign in to configure credentials for your own workspace."
+            ),
+        )
+
+
+@router.get("/integrations/{provider}/credentials", tags=["integrations"])
+def get_integration_credentials(
+    provider: str, session: SessionDep, principal: PrincipalDep
+) -> dict[str, Any]:
+    """Field-by-field status for a provider. Secrets are masked, never returned."""
+    try:
+        return credential_status(session, principal.workspace_id, provider)
+    except CredentialError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.put("/integrations/{provider}/credentials", tags=["integrations"])
+def put_integration_credentials(
+    provider: str,
+    payload: IntegrationCredentialsUpdate,
+    session: SessionDep,
+    principal: WriterDep,
+) -> dict[str, Any]:
+    _reject_shared_demo(principal)
+    try:
+        save_values(session, principal.workspace_id, provider, payload.values)
+        record_activity(
+            session,
+            workspace_id=principal.workspace_id,
+            type="integration",
+            actor="You",
+            title=f"{PROVIDER_SPECS[provider]['label']} credentials saved",
+            detail=(
+                "Credentials were stored encrypted for this workspace. "
+                "Run Test connection to verify them against the provider."
+            ),
+            status="info",
+            reference=f"integration-{provider}",
+        )
+        return credential_status(session, principal.workspace_id, provider)
+    except CredentialError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+
+@router.delete("/integrations/{provider}/credentials", tags=["integrations"])
+def delete_integration_credentials(
+    provider: str, session: SessionDep, principal: WriterDep
+) -> dict[str, Any]:
+    _reject_shared_demo(principal)
+    try:
+        removed = clear_values(session, principal.workspace_id, provider)
+    except CredentialError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    record_activity(
+        session,
+        workspace_id=principal.workspace_id,
+        type="integration",
+        actor="You",
+        title=f"{PROVIDER_SPECS[provider]['label']} credentials removed",
+        detail="Stored credentials were deleted. Environment values, if any, still apply.",
+        status="info",
+        reference=f"integration-{provider}",
+    )
+    return {"removed": removed, **credential_status(session, principal.workspace_id, provider)}
+
+
+@router.post("/integrations/{provider}/test", tags=["integrations"])
+def test_integration(
+    provider: str, session: SessionDep, principal: PrincipalDep
+) -> dict[str, Any]:
+    """One read-only call to the provider using the resolved credentials."""
+    try:
+        values, source = resolve_values(session, principal.workspace_id, provider)
+    except CredentialError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    result = verify_provider(provider, values)
+    record_activity(
+        session,
+        workspace_id=principal.workspace_id,
+        type="integration",
+        actor="Visun",
+        title=(
+            f"{PROVIDER_SPECS[provider]['label']} test {'passed' if result['ok'] else 'failed'}"
+        ),
+        detail=result["detail"],
+        status="success" if result["ok"] else "failed",
+        reference=f"integration-{provider}",
+    )
+    if result["ok"]:
+        integration = session.exec(
+            select(IntegrationConnection).where(
+                IntegrationConnection.workspace_id == principal.workspace_id,
+                IntegrationConnection.provider == provider,
+            )
+        ).first()
+        if integration is not None:
+            integration.last_sync = utcnow()
+            session.add(integration)
+            session.commit()
+    return {
+        "provider": provider,
+        "source": source,
+        **result,
+    }
 
 
 @router.get("/preferences", tags=["preferences"])
@@ -827,3 +1206,5 @@ def propose_agreement_change(
         ),
     )
     return {"action": {"id": action.id, "status": action.status, "canonicalHash": action.canonical_hash}, "sample": True}
+
+

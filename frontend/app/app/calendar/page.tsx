@@ -22,21 +22,17 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
-  Clock3,
   Link2Off,
+  Pencil,
   Plus,
   Sparkles,
   Wallet,
 } from "lucide-react";
+import { Badge, Button, EmptyState, Panel, useToast } from "@/components/ui";
 import {
-  Badge,
-  Button,
-  EmptyState,
-  Modal,
-  Panel,
-  useToast,
-} from "@/components/ui";
-import { invoices, milestones, projects, workspace } from "@/lib/demo-data";
+  DeadlineDialog,
+  type DeadlineValues,
+} from "@/components/calendar/DeadlineDialog";
 import { useAppStore } from "@/lib/store";
 import {
   cn,
@@ -79,17 +75,27 @@ function eventTone(event: CalendarEvent) {
 export default function CalendarPage() {
   const router = useRouter();
   const { push } = useToast();
-  const { state, addActivity } = useAppStore();
+  const {
+    state,
+    createMilestone,
+    updateMilestone,
+    deleteMilestone,
+  } = useAppStore();
+  const { invoices, milestones, projects } = state.reference;
+  const workspace = { timezone: state.preferences.timezone };
   const [view, setView] = useState<ViewId>("month");
   const [cursor, setCursor] = useState(() => new Date(2026, 10, 3));
   const [selectedDate, setSelectedDate] = useState(DEMO_TODAY);
   const [projectFilter, setProjectFilter] = useState("all");
-  const [addOpen, setAddOpen] = useState(false);
-  const [newTitle, setNewTitle] = useState("");
-  const [newProject, setNewProject] = useState("p-northwind");
-  const [newDate, setNewDate] = useState("2026-11-06");
-  const [newTime, setNewTime] = useState("18:00");
-  const [localEvents, setLocalEvents] = useState<CalendarEvent[]>([]);
+  const [deadlineOpen, setDeadlineOpen] = useState(false);
+  const [editingDeadline, setEditingDeadline] = useState<{
+    id?: string;
+    title?: string;
+    projectId?: string;
+    date?: string;
+    time?: string;
+    acceptance?: string;
+  } | null>(null);
 
   const events = useMemo<CalendarEvent[]>(() => {
     const fromMilestones = milestones.map((milestone) => ({
@@ -117,10 +123,10 @@ export default function CalendarPage() {
         overdue: invoice.status === "overdue",
         amount: invoice.amount - invoice.amountPaid,
       }));
-    return [...fromMilestones, ...fromInvoices, ...localEvents].filter(
+    return [...fromMilestones, ...fromInvoices].filter(
       (event) => projectFilter === "all" || event.projectId === projectFilter,
     );
-  }, [localEvents, projectFilter, state.doneMilestones]);
+  }, [invoices, milestones, projectFilter, state.doneMilestones]);
 
   const byDate = useMemo(() => {
     const map = new Map<string, CalendarEvent[]>();
@@ -189,38 +195,76 @@ export default function CalendarPage() {
     setSelectedDate(DEMO_TODAY);
   };
 
-  const addLocalEvent = () => {
-    if (!newTitle.trim()) return;
-    const event: CalendarEvent = {
-      id: `local-${Date.now()}`,
-      date: newDate,
-      time: formatTime(`${newDate}T${newTime || "18:00"}:00+05:30`),
-      title: newTitle.trim(),
-      projectId: newProject,
-      type: "local",
-      done: false,
-      overdue: false,
-    };
-    setLocalEvents((current) => [...current, event]);
-    addActivity({
-      type: "system",
-      actor: "You",
-      title: "Local deadline added",
-      detail: `${event.title} was added to the demo calendar for ${formatDate(newDate)}. Google Calendar is not connected, so nothing was written externally.`,
-      status: "info",
-      projectId: newProject,
+  const openNewDeadline = (dateIso = selectedDate) => {
+    setEditingDeadline({ date: dateIso, projectId: projects[0]?.id });
+    setDeadlineOpen(true);
+  };
+
+  const openEditDeadline = (event: CalendarEvent) => {
+    const milestone = milestones.find((row) => row.id === event.id);
+    if (!milestone) return;
+    setEditingDeadline({
+      id: milestone.id,
+      title: milestone.title,
+      projectId: milestone.projectId,
+      date: formatDate(milestone.dueAt, "yyyy-MM-dd"),
+      time: format(parseISO(milestone.dueAt), "HH:mm"),
+      acceptance: milestone.acceptance,
     });
-    push({
-      tone: "success",
-      title: "Deadline added locally",
-      detail: "Not written to Google Calendar — demo storage only.",
-    });
-    setAddOpen(false);
-    setNewTitle("");
-    setNewDate("2026-11-06");
-    setNewTime("18:00");
-    setSelectedDate(newDate);
-    setCursor(parseISO(newDate));
+    setDeadlineOpen(true);
+  };
+
+  const saveDeadline = async (values: DeadlineValues) => {
+    // The workspace stores instants in UTC; the picker speaks local wall time.
+    const dueAt = `${values.date}T${values.time || "18:00"}:00+05:30`;
+    const result = editingDeadline?.id
+      ? await updateMilestone(editingDeadline.id, {
+          title: values.title,
+          dueAt,
+          acceptance: values.acceptance,
+        })
+      : await createMilestone(values.projectId, {
+          title: values.title,
+          dueAt,
+          acceptance: values.acceptance,
+        });
+    push(
+      result.ok
+        ? {
+            tone: "success",
+            title: editingDeadline?.id ? "Deadline updated" : "Deadline added",
+            detail: `${values.title} is stored in this workspace. No calendar provider was contacted.`,
+          }
+        : {
+            tone: "error",
+            title: "Deadline not saved",
+            detail: result.error ?? "The workspace rejected the change.",
+          },
+    );
+    if (result.ok) {
+      setSelectedDate(values.date);
+      setCursor(parseISO(values.date));
+    }
+    return result;
+  };
+
+  const removeDeadline = async () => {
+    if (!editingDeadline?.id) return { ok: false, error: "Nothing to delete." };
+    const result = await deleteMilestone(editingDeadline.id);
+    push(
+      result.ok
+        ? {
+            tone: "success",
+            title: "Deadline removed",
+            detail: "The milestone was deleted from this workspace only.",
+          }
+        : {
+            tone: "error",
+            title: "Deadline not deleted",
+            detail: result.error ?? "The workspace rejected the change.",
+          },
+    );
+    return result;
   };
 
   const renderEventChip = (event: CalendarEvent, compact = false) => {
@@ -274,7 +318,8 @@ export default function CalendarPage() {
           <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-muted">
             Milestones and invoice due dates, shown in{" "}
             {workspace.timezone.replace("_", " ")}. Google Calendar is not
-            connected, so this view never implies external availability.
+            connected — both stored deadlines and ones you add by hand live in
+            this workspace only.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -288,7 +333,13 @@ export default function CalendarPage() {
           <Button
             variant="primary"
             size="md"
-            onClick={() => setAddOpen(true)}
+            onClick={() => openNewDeadline()}
+            disabled={projects.length === 0}
+            title={
+              projects.length === 0
+                ? "Create a project first so the deadline has somewhere to live"
+                : undefined
+            }
           >
             <Plus size={14} /> Add deadline
           </Button>
@@ -381,18 +432,21 @@ export default function CalendarPage() {
                   const today = iso === DEMO_TODAY;
                   const selected = iso === selectedDate;
                   return (
-                    <button
+                    <div
                       key={iso}
                       onClick={() => setSelectedDate(iso)}
                       className={cn(
-                        "flex min-h-[108px] flex-col border-b border-r border-[#f0ece5] p-1.5 text-left transition last:border-r-0 hover:bg-[#fbfaf7]",
+                        "flex min-h-[108px] cursor-pointer flex-col border-b border-r border-[#f0ece5] p-1.5 text-left transition last:border-r-0 hover:bg-[#fbfaf7]",
                         outside && "bg-[#fbfaf7]/60",
                         selected && "bg-[#fff8ec]",
                       )}
-                      aria-pressed={selected}
-                      aria-label={`${formatDate(iso, "EEEE d MMMM")}, ${dayEvents.length} deadlines`}
                     >
-                      <span
+                      <button
+                        type="button"
+                        onClick={(clickEvent) => {
+                          clickEvent.stopPropagation();
+                          setSelectedDate(iso);
+                        }}
                         className={cn(
                           "mb-1 flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold",
                           today
@@ -401,9 +455,11 @@ export default function CalendarPage() {
                               ? "text-[#b6afa3]"
                               : "text-[#5f5b54]",
                         )}
+                        aria-pressed={selected}
+                        aria-label={`${formatDate(iso, "EEEE d MMMM")}, ${dayEvents.length} deadlines`}
                       >
                         {format(day, "d")}
-                      </span>
+                      </button>
                       <span className="flex flex-1 flex-col gap-0.5">
                         {dayEvents.slice(0, 3).map((event) => renderEventChip(event, true))}
                         {dayEvents.length > 3 ? (
@@ -412,7 +468,7 @@ export default function CalendarPage() {
                           </span>
                         ) : null}
                       </span>
-                    </button>
+                    </div>
                   );
                 })}
               </div>
@@ -497,11 +553,11 @@ export default function CalendarPage() {
                       (item) => item.id === event.projectId,
                     );
                     return (
-                      <li key={event.id}>
+                      <li key={event.id} className="flex items-start gap-1.5">
                         <Link
                           href={`/app/projects/${event.projectId}`}
                           className={cn(
-                            "flex items-start gap-3 rounded-xl border p-3.5 transition hover:brightness-[0.99]",
+                            "flex min-w-0 flex-1 items-start gap-3 rounded-xl border p-3.5 transition hover:brightness-[0.99]",
                             eventTone(event),
                           )}
                         >
@@ -537,6 +593,17 @@ export default function CalendarPage() {
                             <ArrowUpRight size={12} className="mt-1 shrink-0 opacity-60" />
                           )}
                         </Link>
+                        {event.type === "milestone" ? (
+                          <button
+                            type="button"
+                            onClick={() => openEditDeadline(event)}
+                            className="mt-1.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-[#e2ded6] bg-white text-muted transition hover:border-[#d2ccc0] hover:text-ink"
+                            aria-label={`Edit or delete ${event.title}`}
+                            title="Edit or delete this deadline"
+                          >
+                            <Pencil size={11} />
+                          </button>
+                        ) : null}
                       </li>
                     );
                   })}
@@ -546,14 +613,15 @@ export default function CalendarPage() {
                   <EmptyState
                     icon={<CalendarClock size={18} />}
                     title="Nothing scheduled"
-                    description="No stored milestones or invoice dates fall on this day. External calendar events are unavailable because no provider is connected."
+                    description="No stored milestones or invoice dates fall on this day. External calendar events are unavailable because no provider is connected, but you can add a deadline yourself."
                     action={
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => setAddOpen(true)}
+                        onClick={() => openNewDeadline()}
+                        disabled={projects.length === 0}
                       >
-                        <Plus size={12} /> Add a local deadline
+                        <Plus size={12} /> Add deadline
                       </Button>
                     }
                   />
@@ -562,9 +630,9 @@ export default function CalendarPage() {
 
               <div className="mt-5 rounded-xl border border-[#eae5dc] bg-[#fbfaf7] p-3.5">
                 <p className="text-[10.5px] leading-relaxed text-muted">
-                  Drag-to-reschedule is intentionally disabled until Google
-                  Calendar write access is connected and each change is
-                  confirmed. No hidden calendar writes happen here.
+                  Deadlines are edited here by hand. Drag-to-reschedule stays
+                  disabled until Google Calendar write access is connected and
+                  each change is confirmed, so no hidden calendar writes happen.
                 </p>
               </div>
             </div>
@@ -652,18 +720,14 @@ export default function CalendarPage() {
                     (item) => item.id === event.projectId,
                   );
                   return (
-                    <li key={event.id}>
+                    <li key={event.id} className="flex items-start gap-1">
                       <Link
                         href={`/app/projects/${event.projectId}`}
-                        className="block px-4 py-3 transition hover:bg-[#fbfaf7]"
+                        className="block min-w-0 flex-1 px-4 py-3 transition hover:bg-[#fbfaf7]"
                       >
                         <div className="flex items-center justify-between gap-2">
                           <span className="font-mono text-[8.5px] uppercase tracking-wider text-muted">
-                            {event.type === "invoice"
-                              ? "Payment"
-                              : event.type === "local"
-                                ? "Local deadline"
-                                : "Milestone"}
+                            {event.type === "invoice" ? "Payment" : "Milestone"}
                           </span>
                           <span className="font-mono text-[8.5px] text-muted">
                             {event.time}
@@ -676,14 +740,36 @@ export default function CalendarPage() {
                           {project?.name}
                         </p>
                       </Link>
+                      {event.type === "milestone" ? (
+                        <button
+                          type="button"
+                          onClick={() => openEditDeadline(event)}
+                          className="mr-2 mt-3 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-[#e2ded6] bg-white text-muted transition hover:border-[#d2ccc0] hover:text-ink"
+                          aria-label={`Edit or delete ${event.title}`}
+                          title="Edit or delete this deadline"
+                        >
+                          <Pencil size={11} />
+                        </button>
+                      ) : null}
                     </li>
                   );
                 })}
               </ul>
             ) : (
-              <p className="px-4 py-5 text-center text-[10.5px] text-muted">
-                Clear. No stored deadline on this day.
-              </p>
+              <div className="px-4 py-4 text-center">
+                <p className="text-[10.5px] text-muted">
+                  Clear. No stored deadline on this day.
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-2"
+                  onClick={() => openNewDeadline(selectedDate)}
+                  disabled={projects.length === 0}
+                >
+                  <Plus size={11} /> Add deadline
+                </Button>
+              </div>
             )}
           </Panel>
 
@@ -762,77 +848,14 @@ export default function CalendarPage() {
         </div>
       </div>
 
-      <Modal
-        open={addOpen}
-        onClose={() => setAddOpen(false)}
-        title="Add a local deadline"
-        description="This demo stores the deadline in your browser only. Google Calendar is not connected, so nothing is written externally."
-        footer={
-          <>
-            <Button variant="outline" size="sm" onClick={() => setAddOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={addLocalEvent}
-              disabled={!newTitle.trim()}
-            >
-              <Plus size={12} /> Add deadline
-            </Button>
-          </>
-        }
-      >
-        <div className="space-y-3">
-          <label className="block">
-            <span className="mb-1 block text-[11px] font-medium text-muted">Title</span>
-            <input
-              value={newTitle}
-              onChange={(event) => setNewTitle(event.target.value)}
-              placeholder="e.g. Send staging link to Rahul"
-              className="h-10 w-full rounded-lg border border-[#e2ded6] bg-[#f8f6f1] px-3 text-[12px] outline-none transition focus:border-orange focus:bg-white"
-            />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-[11px] font-medium text-muted">Project</span>
-            <select
-              value={newProject}
-              onChange={(event) => setNewProject(event.target.value)}
-              className="h-10 w-full rounded-lg border border-[#e2ded6] bg-[#f8f6f1] px-3 text-[12px] outline-none focus:border-orange focus:bg-white"
-            >
-              {projects.map((project) => (
-                <option key={project.id} value={project.id}>
-                  {project.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block">
-              <span className="mb-1 block text-[11px] font-medium text-muted">Date</span>
-              <input
-                type="date"
-                value={newDate}
-                onChange={(event) => setNewDate(event.target.value)}
-                className="h-10 w-full rounded-lg border border-[#e2ded6] bg-[#f8f6f1] px-3 text-[12px] outline-none focus:border-orange focus:bg-white"
-              />
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-[11px] font-medium text-muted">Time</span>
-              <input
-                type="time"
-                value={newTime}
-                onChange={(event) => setNewTime(event.target.value)}
-                className="h-10 w-full rounded-lg border border-[#e2ded6] bg-[#f8f6f1] px-3 text-[12px] outline-none focus:border-orange focus:bg-white"
-              />
-            </label>
-          </div>
-          <p className="rounded-lg bg-[#fff8e2] px-3 py-2 text-[10px] leading-relaxed text-[#7a6b3e]">
-            Local deadlines appear in this calendar with a neutral chip and are
-            logged in Activity. They are not sent to any provider.
-          </p>
-        </div>
-      </Modal>
+      <DeadlineDialog
+        open={deadlineOpen}
+        onClose={() => setDeadlineOpen(false)}
+        projects={projects}
+        initial={editingDeadline}
+        onSubmit={saveDeadline}
+        onDelete={editingDeadline?.id ? removeDeadline : undefined}
+      />
     </div>
   );
 }

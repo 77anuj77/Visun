@@ -27,13 +27,6 @@ import {
   Panel,
   useToast,
 } from "@/components/ui";
-import {
-  agreements,
-  clientMessages,
-  clients,
-  projects,
-  scopeFindings,
-} from "@/lib/demo-data";
 import { useAppStore } from "@/lib/store";
 import type { ScopeFinding } from "@/lib/types";
 import {
@@ -72,9 +65,16 @@ export default function InboxPage() {
   const router = useRouter();
   const { push } = useToast();
   const { state, reviewFinding, addActivity } = useAppStore();
+  const {
+    agreements,
+    messages: clientMessages,
+    clients,
+    projects,
+    scopeFindings,
+  } = state.reference;
   const [source, setSource] = useState<SourceFilter>("all");
   const [query, setQuery] = useState("");
-  const [activeProjectId, setActiveProjectId] = useState("p-northwind");
+  const [activeProjectId, setActiveProjectId] = useState("");
   const [selectedFindingId, setSelectedFindingId] = useState<string | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [consent, setConsent] = useState(false);
@@ -127,7 +127,16 @@ export default function InboxPage() {
       .sort((a, b) =>
         (b.lastMessage?.sentAt ?? "").localeCompare(a.lastMessage?.sentAt ?? ""),
       );
-  }, [query, source, state.findingReviews]);
+  }, [
+    agreements,
+    clientMessages,
+    clients,
+    projects,
+    query,
+    scopeFindings,
+    source,
+    state.findingReviews,
+  ]);
 
   const activeGroup =
     groups.find((group) => group.project.id === activeProjectId) ?? groups[0];

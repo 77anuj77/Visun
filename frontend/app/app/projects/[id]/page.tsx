@@ -30,15 +30,6 @@ import {
   Progress,
   useToast,
 } from "@/components/ui";
-import {
-  agreements,
-  clientMessages,
-  clients,
-  invoices,
-  milestones,
-  projects,
-  scopeFindings,
-} from "@/lib/demo-data";
 import { useAppStore } from "@/lib/store";
 import type { ScopeFinding } from "@/lib/types";
 import {
@@ -71,6 +62,15 @@ export default function ProjectDetailPage() {
     toggleMilestone,
     reviewFinding,
   } = useAppStore();
+  const {
+    agreements,
+    messages: clientMessages,
+    clients,
+    invoices,
+    milestones,
+    projects,
+    scopeFindings,
+  } = state.reference;
   const [tab, setTab] = useState<TabId>("overview");
 
   const project = projects.find((item) => item.id === params.id);
@@ -80,7 +80,7 @@ export default function ProjectDetailPage() {
   const agreement = agreements.find((item) => item.projectId === params.id);
   const projectMilestones = useMemo(
     () => milestones.filter((milestone) => milestone.projectId === params.id),
-    [params.id],
+    [milestones, params.id],
   );
   const projectInvoices = invoices.filter(
     (invoice) => invoice.projectId === params.id,
@@ -100,7 +100,7 @@ export default function ProjectDetailPage() {
       <EmptyState
         icon={<FileSignature size={18} />}
         title="Project not found"
-        description="This project is not in the demo workspace, or the link is incomplete."
+        description="This project is not in your workspace, or the link is incomplete."
         action={
           <Button variant="outline" size="sm" onClick={() => router.push("/app/projects")}>
             <ArrowLeft size={12} /> Back to projects
@@ -498,7 +498,7 @@ export default function ProjectDetailPage() {
                 <div>
                   <p className="text-[12px] font-semibold">Scope watch</p>
                   <p className="mt-1 text-[10.5px] leading-relaxed text-[#7a6b3e]">
-                    {openFindings
+                    {openFindings > 0
                       ? `${openFindings} client request${openFindings > 1 ? "s" : ""} may sit outside the signed agreement. Review the evidence before promising anything.`
                       : "No open scope findings. Earlier decisions are kept in the audit trail."}
                   </p>
@@ -827,8 +827,8 @@ export default function ProjectDetailPage() {
                 One message needs a decision
               </p>
               <p className="mt-1 text-[10.5px] leading-relaxed text-[#7a6b3e]">
-                {openFindings
-                  ? "Rahul's authentication and payment request is not covered by the agreement."
+                {openFindings > 0
+                  ? `${openFindings} client request${openFindings > 1 ? "s" : ""} may sit outside the signed agreement.`
                   : "All findings have been reviewed."}
               </p>
               <Button

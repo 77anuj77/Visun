@@ -374,7 +374,7 @@ def draft_payment_reminder(
             + (" and now overdue" if days_overdue else "")
             + ".\n\n"
             f"The PayPal Sandbox invoice reference is {invoice.provider_id or invoice.number}. "
-            "Happy to resend it if helpful.\n\nThanks,\nAyush"
+            f"Happy to resend it if helpful.\n\nThanks,\n{principal.name}"
         )
         existing = session.exec(
             select(ActionApproval).where(

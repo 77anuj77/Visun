@@ -13,6 +13,7 @@ from collections import defaultdict, deque
 from dataclasses import dataclass
 from typing import Annotated, Any
 
+import httpx
 import jwt
 from fastapi import Depends, HTTPException, Request, WebSocket, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -20,6 +21,7 @@ from jwt import PyJWKClient
 from sqlmodel import Session, select
 
 from ..models import User, Workspace, WorkspaceMember
+from ..seed import SAMPLE_EMAIL, seed_workspace_from_demo
 from .config import settings
 from .database import get_session
 
@@ -81,6 +83,83 @@ def _claims_from_token(token: str) -> dict[str, Any]:
         ) from exc
 
 
+# Clerk's default session-token claims carry only the subject, so a freshly
+# provisioned account would otherwise keep a placeholder identity forever.
+# Read the person's real name/email once from Clerk and cache the answer.
+PLACEHOLDER_NAME = "Visun user"
+PLACEHOLDER_EMAIL_SUFFIX = "@users.clerk.local"
+
+_profile_cache: dict[str, tuple[str, str] | None] = {}
+_profile_lock = threading.Lock()
+
+
+def _clerk_profile(clerk_id: str) -> tuple[str, str] | None:
+    """Return `(name, email)` for a Clerk user, or None when unavailable."""
+    with _profile_lock:
+        if clerk_id in _profile_cache:
+            return _profile_cache[clerk_id]
+    if not settings.clerk_secret_key:
+        return None
+    profile: tuple[str, str] | None = None
+    try:
+        response = httpx.get(
+            f"https://api.clerk.com/v1/users/{clerk_id}",
+            headers={"Authorization": f"Bearer {settings.clerk_secret_key}"},
+            timeout=3.0,
+        )
+        if response.status_code == 200:
+            payload = response.json()
+            name = " ".join(
+                str(part)
+                for part in [payload.get("first_name"), payload.get("family_name")]
+                if part
+            ) or str(payload.get("username") or "")
+            emails = payload.get("email_addresses") or []
+            primary = payload.get("primary_email_address_id")
+            email = next(
+                (
+                    str(row.get("email_address") or "")
+                    for row in emails
+                    if row.get("id") == primary
+                ),
+                str(emails[0].get("email_address") or "") if emails else "",
+            )
+            if name and email:
+                profile = (name, email)
+    except (httpx.HTTPError, TypeError, ValueError):
+        # Network/HTTP/parse failure must never block sign-in.
+        profile = None
+    with _profile_lock:
+        _profile_cache[clerk_id] = profile
+    return profile
+
+
+def _refresh_placeholder_identity(
+    session: Session, user: User, clerk_id: str
+) -> None:
+    """Replace a placeholder identity with the real Clerk profile.
+
+    Only rows that still carry the generated placeholder are touched, and the
+    workspace is renamed only while it still has its generated name, so an
+    account with real data is never overwritten.
+    """
+    profile = _clerk_profile(clerk_id)
+    if profile is None:
+        return
+    name, email = profile
+    previous_first = user.name.split(" ")[0]
+    user.name = name
+    user.email = email
+    session.add(user)
+    workspace = session.exec(
+        select(Workspace).where(Workspace.owner_user_id == user.id)
+    ).first()
+    if workspace is not None and workspace.name == f"{previous_first}'s workspace":
+        workspace.name = f"{name.split(' ')[0]}'s workspace"
+        session.add(workspace)
+    session.commit()
+
+
 def _provision(session: Session, claims: dict[str, Any]) -> Principal:
     clerk_id = str(claims["sub"])
     user = session.exec(select(User).where(User.clerk_user_id == clerk_id)).first()
@@ -89,8 +168,12 @@ def _provision(session: Session, claims: dict[str, Any]) -> Principal:
             part
             for part in [claims.get("given_name"), claims.get("family_name")]
             if part
-        ) or str(claims.get("name") or claims.get("email") or "Visun user")
-        email = str(claims.get("email") or f"{clerk_id}@users.clerk.local")
+        ) or str(claims.get("name") or claims.get("email") or PLACEHOLDER_NAME)
+        email = str(claims.get("email") or f"{clerk_id}{PLACEHOLDER_EMAIL_SUFFIX}")
+        if name == PLACEHOLDER_NAME or email.endswith(PLACEHOLDER_EMAIL_SUFFIX):
+            profile = _clerk_profile(clerk_id)
+            if profile is not None:
+                name, email = profile
         user = User(
             id=f"u-{clerk_id}",
             clerk_user_id=clerk_id,
@@ -114,6 +197,8 @@ def _provision(session: Session, claims: dict[str, Any]) -> Principal:
         )
         session.commit()
         session.refresh(user)
+    elif user.name == PLACEHOLDER_NAME or user.email.endswith(PLACEHOLDER_EMAIL_SUFFIX):
+        _refresh_placeholder_identity(session, user, clerk_id)
     membership = session.exec(
         select(WorkspaceMember).where(WorkspaceMember.user_id == user.id)
     ).first()
@@ -135,6 +220,17 @@ def _provision(session: Session, claims: dict[str, Any]) -> Principal:
         )
         session.add(membership)
         session.commit()
+    # Sample records belong to exactly one verified email address. Everyone
+    # else gets an empty workspace they fill themselves (or through the agent);
+    # the helper is idempotent and never overwrites existing records.
+    session.commit()
+    if (user.email or "").strip().lower() == SAMPLE_EMAIL:
+        seed_workspace_from_demo(
+            session,
+            workspace_id=membership.workspace_id,
+            user_id=user.id,
+            user_name=user.name,
+        )
     return Principal(
         user_id=user.id,
         clerk_user_id=user.clerk_user_id,

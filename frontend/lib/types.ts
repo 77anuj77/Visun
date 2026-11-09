@@ -242,8 +242,21 @@ export type Preferences = {
   retention: "30" | "90" | "365" | "forever";
 };
 
+export type WorkspaceReference = {
+  clients: Client[];
+  projects: Project[];
+  milestones: Milestone[];
+  agreements: Agreement[];
+  invoices: Invoice[];
+  scopeFindings: ScopeFinding[];
+  messages: ClientMessage[];
+  integrations: Integration[];
+};
+
 export type AppState = {
   version: number;
+  /** The signed-in workspace's records. Empty for a brand-new account. */
+  reference: WorkspaceReference;
   findingReviews: Record<string, ReviewState>;
   actions: Record<string, ActionStatus>;
   integrations: Record<string, boolean>;

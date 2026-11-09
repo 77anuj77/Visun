@@ -12,12 +12,18 @@ import tempfile
 from pathlib import Path
 
 _TMP = Path(tempfile.mkdtemp(prefix="visun-tests-"))
-os.environ.setdefault("ENVIRONMENT", "test")
-os.environ.setdefault("DATABASE_URL", f"sqlite:///{_TMP / 'visun-test.db'}")
-os.environ.setdefault("AUTH_MODE", "demo")
-os.environ.setdefault("PROVIDER_MODE", "simulated")
-os.environ.setdefault("AGENT_BACKEND", "deterministic")
-os.environ.setdefault("VOICE_BACKEND", "browser")
+# Assign rather than setdefault: a developer's `backend/.env` also feeds
+# pydantic-settings, and a stray `ALLOW_PUBLIC_DEMO=true` or `AUTH_MODE=clerk`
+# there would change what the assertions below describe. Environment variables
+# win over the env file, so the suite stays hermetic either way.
+os.environ["ENVIRONMENT"] = "test"
+os.environ["DATABASE_URL"] = f"sqlite:///{_TMP / 'visun-test.db'}"
+os.environ["AUTH_MODE"] = "demo"
+os.environ["ALLOW_PUBLIC_DEMO"] = "false"
+os.environ["PROVIDER_MODE"] = "simulated"
+os.environ["AGENT_BACKEND"] = "deterministic"
+os.environ["VOICE_BACKEND"] = "browser"
+os.environ["APP_ENCRYPTION_KEY"] = "test-encryption-key-not-a-secret"
 
 import pytest
 from fastapi.testclient import TestClient

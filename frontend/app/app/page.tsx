@@ -3,28 +3,24 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { motion, useReducedMotion } from "motion/react";
+import { useReducedMotion } from "motion/react";
 import {
   ArrowRight,
   ArrowUpRight,
   CalendarClock,
   Check,
-  CheckCircle2,
   CircleDollarSign,
   Clock3,
   FileText,
   Inbox,
-  Loader2,
   Mail,
-  Plus,
   RefreshCw,
   ShieldCheck,
   Sparkles,
   Users,
   Wallet,
-  Zap,
 } from "lucide-react";
-import { addDays, eachDayOfInterval, format, parseISO } from "date-fns";
+import { addDays, differenceInCalendarDays, eachDayOfInterval, format, parseISO } from "date-fns";
 import {
   Avatar,
   Badge,
@@ -33,19 +29,17 @@ import {
   Progress,
   useToast,
 } from "@/components/ui";
-import {
-  clients,
-  DEMO_NOW,
-  invoices,
-  leads as seedLeads,
-  milestones,
-  projects,
-  scopeFindings,
-  workspace,
-} from "@/lib/demo-data";
+import { DEMO_DATE } from "@/lib/demo-data";
 import { useAppStore } from "@/lib/store";
 import type { Tone } from "@/components/ui";
-import { cn, formatMoney, formatTime, statusTone, sum } from "@/lib/utils";
+import type { Milestone } from "@/lib/types";
+import {
+  cn,
+  formatMoney,
+  formatTime,
+  statusTone,
+  sum,
+} from "@/lib/utils";
 
 function AnimatedValue({
   value,
@@ -143,14 +137,10 @@ function KpiCard({
   );
 }
 
-function ScopeRing() {
-  const { state } = useAppStore();
-  const count = Object.values(state.findingReviews).filter(
-    (value) => value === "potential" || value === "reviewing",
-  ).length;
+function ScopeRing({ count }: { count: number }) {
   return (
     <div className="flex items-end gap-1" aria-hidden="true">
-      {[0.92, 0.78, 0.46].slice(0, count).map((confidence, index) => (
+      {[0.92, 0.78, 0.46].slice(0, Math.max(count, 0)).map((confidence, index) => (
         <span
           key={index}
           className={cn(
@@ -164,10 +154,17 @@ function ScopeRing() {
   );
 }
 
-function WeekDots() {
+function WeekDots({
+  milestones,
+  start,
+}: {
+  milestones: Milestone[];
+  start: Date;
+}) {
+  const todayIso = format(start, "yyyy-MM-dd");
   const days = eachDayOfInterval({
-    start: parseISO("2026-11-03"),
-    end: parseISO("2026-11-09"),
+    start,
+    end: addDays(start, 6),
   });
   return (
     <div className="flex gap-1" aria-hidden="true">
@@ -182,7 +179,7 @@ function WeekDots() {
             key={iso}
             className={cn(
               "h-5 w-2 rounded-full",
-              iso === "2026-11-03"
+              iso === todayIso
                 ? "bg-ink"
                 : busy
                   ? "bg-orange"
@@ -197,36 +194,72 @@ function WeekDots() {
 
 export default function DashboardPage() {
   const router = useRouter();
-  const reduce = useReducedMotion();
   const { push } = useToast();
   const {
     state,
+    profile,
+    isDemo,
     approveAction,
-    rejectAction,
     recheckPayments,
-    reviewFinding,
-    hydrated,
   } = useAppStore();
-  const [priorityDone, setPriorityDone] = useState<string[]>(["p-lead"]);
+  const { clients, projects, milestones, invoices, scopeFindings } =
+    state.reference;
+  const [priorityDone, setPriorityDone] = useState<string[]>([]);
   const [syncing, setSyncing] = useState(false);
   const [approving, setApproving] = useState(false);
+
+  // The seeded demo keeps its fixed scenario clock; a real workspace uses the
+  // live date. Either way, every number below comes from the loaded snapshot.
+  const referenceDate = isDemo ? parseISO(DEMO_DATE) : new Date();
+  const weekStartIso = format(referenceDate, "yyyy-MM-dd");
+  const weekEndIso = format(addDays(referenceDate, 7), "yyyy-MM-dd");
 
   const openInvoices = invoices.filter((invoice) =>
     ["sent", "overdue", "partially_paid"].includes(invoice.status),
   );
+  const overdueInvoices = invoices.filter(
+    (invoice) => invoice.status === "overdue",
+  );
   const outstanding = sum(
     openInvoices.map((invoice) => invoice.amount - invoice.amountPaid),
   );
-  const weekDeadlines = milestones.filter((milestone) => {
-    if (milestone.status === "done") return false;
-    return milestone.dueAt >= "2026-11-03" && milestone.dueAt < "2026-11-10";
+  const collected = sum(invoices.map((invoice) => invoice.amountPaid));
+  const weekDeadlines = milestones
+    .filter((milestone) => {
+      if (milestone.status === "done") return false;
+      return (
+        milestone.dueAt >= weekStartIso && milestone.dueAt < weekEndIso
+      );
+    })
+    .sort((a, b) => a.dueAt.localeCompare(b.dueAt));
+  const reviewFindings = scopeFindings.filter((finding) => {
+    const review = state.findingReviews[finding.id] ?? finding.reviewState;
+    return review === "potential" || review === "reviewing";
   });
-  const scopeCount = Object.values(state.findingReviews).filter(
-    (value) => value === "potential" || value === "reviewing",
-  ).length;
-  const leadsToday = state.leads.filter((lead) =>
-    lead.receivedAt.startsWith("2026-11-03"),
-  ).length;
+  const scopeCount = reviewFindings.length;
+  const activeLeads = state.leads.filter((lead) => lead.stage !== "won");
+  const pipelineValue = sum(activeLeads.map((lead) => lead.value));
+  const greetingName = profile.name.trim().split(/\s+/)[0] || profile.name;
+
+  const attention = [
+    weekDeadlines.length > 0
+      ? `${weekDeadlines.length} deadline${weekDeadlines.length === 1 ? "" : "s"} this week`
+      : null,
+    overdueInvoices.length > 0
+      ? `${overdueInvoices.length} overdue invoice${overdueInvoices.length === 1 ? "" : "s"}`
+      : null,
+    scopeCount > 0
+      ? `${scopeCount} scope request${scopeCount === 1 ? "" : "s"} needing your call`
+      : null,
+  ].filter((part): part is string => Boolean(part));
+  const hasWorkspaceData =
+    clients.length + projects.length + milestones.length + invoices.length > 0;
+  const summary =
+    attention.length > 0
+      ? `${attention.join(" · ")}. Everything below is traceable.`
+      : hasWorkspaceData
+        ? "Nothing needs your attention right now. Everything below is traceable."
+        : "Your workspace is ready. Add a project or connect an integration to see deadlines, payments, and client signals here.";
 
   const pendingApproval = useMemo(() => {
     for (const conversation of state.conversations) {
@@ -239,44 +272,74 @@ export default function DashboardPage() {
     return null;
   }, [state.conversations]);
 
-  const priorities = [
-    {
-      id: "p-scope",
+  const priorities: {
+    id: string;
+    icon: React.ComponentType<{ size?: number; className?: string }>;
+    title: string;
+    meta: string;
+    href: string;
+    badge: string;
+    tone: Tone;
+  }[] = [];
+
+  reviewFindings.slice(0, 2).forEach((finding) => {
+    priorities.push({
+      id: finding.id,
       icon: Inbox,
-      title: "Rahul requested login + payments",
-      meta: "Potential scope change · 92% confidence · $950 estimate",
+      title: finding.title,
+      meta: `${finding.platform} · ${Math.round(finding.confidence * 100)}% confidence${
+        finding.estimate ? ` · ${formatMoney(finding.estimate)} estimate` : ""
+      }`,
       href: "/app/inbox",
       badge: "Needs review",
-      tone: "warning" as Tone,
-    },
-    {
-      id: "p-invoice",
+      tone: "warning",
+    });
+  });
+
+  overdueInvoices.slice(0, 1).forEach((invoice) => {
+    const client = clients.find((item) => item.id === invoice.clientId);
+    const remaining = invoice.amount - invoice.amountPaid;
+    priorities.push({
+      id: invoice.id,
       icon: CircleDollarSign,
-      title: "Okafor invoice is 2 days overdue",
-      meta: "INV-1045 · $800 · verified 09:02",
+      title: `${client?.company ?? "Client"} invoice is overdue`,
+      meta: `${invoice.number} · ${formatMoney(remaining)} · due ${format(parseISO(invoice.dueAt), "d MMM")}`,
       href: "/app/payments",
       badge: "Overdue",
-      tone: "danger" as Tone,
-    },
-    {
-      id: "p-build",
+      tone: "danger",
+    });
+  });
+
+  const nextDeadline = weekDeadlines[0];
+  if (nextDeadline) {
+    const project = projects.find(
+      (item) => item.id === nextDeadline.projectId,
+    );
+    priorities.push({
+      id: nextDeadline.id,
       icon: Clock3,
-      title: "Northwind marketing build due Friday",
-      meta: "64% complete · staging review at 4pm",
-      href: "/app/projects/p-northwind",
-      badge: "Due 6 Nov",
-      tone: "neutral" as Tone,
-    },
-    {
-      id: "p-lead",
+      title: `${nextDeadline.title}${project ? ` · ${project.name}` : ""}`,
+      meta: `Due ${format(parseISO(nextDeadline.dueAt), "EEE d MMM")}${
+        project ? ` · ${Math.round(project.progress)}% complete` : ""
+      }`,
+      href: project ? `/app/projects/${project.id}` : "/app/calendar",
+      badge: `Due ${format(parseISO(nextDeadline.dueAt), "d MMM")}`,
+      tone: "neutral",
+    });
+  }
+
+  const nextLead = activeLeads[0];
+  if (nextLead) {
+    priorities.push({
+      id: nextLead.id,
       icon: Users,
-      title: "Nina Patel asked about four landing pages",
-      meta: "Referral from Maya · reply by 4pm today",
+      title: `${nextLead.name} · ${nextLead.company}`,
+      meta: nextLead.interest,
       href: "/app/leads",
       badge: "Lead",
-      tone: "info" as Tone,
-    },
-  ];
+      tone: "info",
+    });
+  }
 
   const togglePriority = (id: string, title: string) => {
     setPriorityDone((current) => {
@@ -313,13 +376,13 @@ export default function DashboardPage() {
     push({
       tone: "success",
       title: "PayPal Sandbox reconciled",
-      detail: "Five invoices checked. No status changes since 09:02.",
+      detail: `${invoices.length} invoice${invoices.length === 1 ? "" : "s"} checked. Nothing was changed externally.`,
     });
   };
 
   const days = eachDayOfInterval({
-    start: parseISO("2026-11-03"),
-    end: parseISO("2026-11-09"),
+    start: referenceDate,
+    end: addDays(referenceDate, 6),
   });
 
   return (
@@ -328,18 +391,18 @@ export default function DashboardPage() {
         <div>
           <div className="flex flex-wrap items-center gap-2.5">
             <p className="eyebrow">
-              Tuesday, 3 November 2026 · {workspace.timezone}
+              {format(referenceDate, "EEEE, d MMMM yyyy")} ·{" "}
+              {state.preferences.timezone}
             </p>
             <Badge tone="yellow" className="!px-2 !py-0.5 !text-[9.5px]">
-              Sample data
+              {isDemo ? "Sample data" : "Your workspace"}
             </Badge>
           </div>
           <h2 className="mt-2 text-[clamp(1.9rem,3vw,2.5rem)] font-semibold leading-[1.08] tracking-[-0.035em]">
-            Good afternoon, Ayush.
+            Good afternoon, {greetingName}.
           </h2>
           <p className="mt-1.5 max-w-xl text-[13.5px] leading-relaxed text-muted">
-            One deadline risk, one overdue invoice, and a scope request that needs
-            your call. Everything below is traceable.
+            {summary}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -366,7 +429,11 @@ export default function DashboardPage() {
           label="Outstanding"
           value={outstanding}
           formatValue={(value) => formatMoney(value)}
-          hint="3 invoices · verified 09:02"
+          hint={
+            openInvoices.length > 0
+              ? `${openInvoices.length} open invoice${openInvoices.length === 1 ? "" : "s"}`
+              : "No open invoices"
+          }
           href="/app/payments"
           icon={Wallet}
           visual={
@@ -382,33 +449,64 @@ export default function DashboardPage() {
           label="Due this week"
           value={weekDeadlines.length}
           formatValue={(value) => String(Math.round(value))}
-          hint="Next: Northwind, Fri 6 Nov"
+          hint={
+            nextDeadline
+              ? `Next: ${nextDeadline.title}`
+              : "Nothing due this week"
+          }
           href="/app/calendar"
           icon={CalendarClock}
-          visual={<WeekDots />}
+          visual={<WeekDots milestones={milestones} start={referenceDate} />}
         />
         <KpiCard
           label="Scope changes"
           value={scopeCount}
           formatValue={(value) => String(Math.round(value))}
-          hint="1 high confidence · needs your call"
+          hint={
+            scopeCount > 0
+              ? `${scopeCount} needing your call`
+              : "No open scope changes"
+          }
           href="/app/inbox"
           icon={ShieldCheck}
-          visual={<ScopeRing />}
+          visual={<ScopeRing count={scopeCount} />}
         />
         <KpiCard
-          label="Leads today"
-          value={leadsToday}
+          label="Active leads"
+          value={activeLeads.length}
           formatValue={(value) => String(Math.round(value))}
-          hint="2 new · $8,800 pipeline today"
+          hint={
+            activeLeads.length > 0
+              ? `${formatMoney(pipelineValue)} in pipeline`
+              : "No leads yet"
+          }
           href="/app/leads"
           icon={Users}
           accent
           visual={
-            <div className="flex -space-x-1.5" aria-hidden="true">
-              <Avatar name="Nina Patel" initials="NP" size="sm" hue="orange" />
-              <Avatar name="Tom Alvarez" initials="TA" size="sm" hue="ink" />
-            </div>
+            activeLeads.length > 0 ? (
+              <div className="flex -space-x-1.5" aria-hidden="true">
+                {activeLeads.slice(0, 2).map((lead, index) => (
+                  <Avatar
+                    key={lead.id}
+                    name={lead.name}
+                    initials={lead.name
+                      .trim()
+                      .split(/\s+/)
+                      .map((part) => part[0])
+                      .slice(0, 2)
+                      .join("")
+                      .toUpperCase()}
+                    size="sm"
+                    hue={index === 0 ? "orange" : "ink"}
+                  />
+                ))}
+              </div>
+            ) : (
+              <span className="flex h-9 w-9 items-center justify-center rounded-full border border-[#e0c65c] bg-white/55 text-ink">
+                <Users size={15} />
+              </span>
+            )
           }
         />
       </section>
@@ -429,67 +527,83 @@ export default function DashboardPage() {
                 {priorities.length - priorityDone.length} open
               </Badge>
             </div>
-            <ul className="divide-y divide-[#f0ece5]">
-              {priorities.map((item) => {
-                const done = priorityDone.includes(item.id);
-                const Icon = item.icon;
-                return (
-                  <li key={item.id}>
-                    <div className="group flex items-start gap-3 px-5 py-3.5 transition hover:bg-[#fbfaf7]">
-                      <button
-                        onClick={() => togglePriority(item.id, item.title)}
-                        className={cn(
-                          "mt-0.5 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full border transition",
-                          done
-                            ? "border-success bg-success text-white"
-                            : "border-[#cfc9be] bg-white text-transparent hover:border-orange hover:text-orange",
-                        )}
-                        aria-label={done ? `Reopen ${item.title}` : `Complete ${item.title}`}
-                        aria-pressed={done}
-                      >
-                        <Check size={12} strokeWidth={3} />
-                      </button>
-                      <span
-                        className={cn(
-                          "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[#e6e1d8] bg-[#f8f7f3] text-[#6f6a62]",
-                          done && "opacity-50",
-                        )}
-                      >
-                        <Icon size={16} />
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Link
-                            href={item.href}
-                            className={cn(
-                              "text-[13.5px] font-semibold leading-snug transition group-hover:text-orange",
-                              done && "text-muted line-through decoration-[#c9c3b8]",
-                            )}
-                          >
-                            {item.title}
-                          </Link>
-                          <Badge tone={item.tone} className="!py-0.5 !text-[9.5px]">
-                            {item.badge}
-                          </Badge>
+            {priorities.length === 0 ? (
+              <div className="px-5 py-8 text-center">
+                <p className="text-[13px] font-medium">
+                  {hasWorkspaceData ? "You're all caught up" : "Nothing here yet"}
+                </p>
+                <p className="mx-auto mt-1 max-w-sm text-[11.5px] leading-relaxed text-muted">
+                  {hasWorkspaceData
+                    ? "No overdue invoices, scope requests, or deadlines need your attention right now."
+                    : "Add a project, log a lead, or connect an integration and today's priorities will appear here."}
+                </p>
+              </div>
+            ) : (
+              <ul className="divide-y divide-[#f0ece5]">
+                {priorities.map((item) => {
+                  const done = priorityDone.includes(item.id);
+                  const Icon = item.icon;
+                  return (
+                    <li key={item.id}>
+                      <div className="group flex items-start gap-3 px-5 py-3.5 transition hover:bg-[#fbfaf7]">
+                        <button
+                          onClick={() => togglePriority(item.id, item.title)}
+                          className={cn(
+                            "mt-0.5 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full border transition",
+                            done
+                              ? "border-success bg-success text-white"
+                              : "border-[#cfc9be] bg-white text-transparent hover:border-orange hover:text-orange",
+                          )}
+                          aria-label={done ? `Reopen ${item.title}` : `Complete ${item.title}`}
+                          aria-pressed={done}
+                        >
+                          <Check size={12} strokeWidth={3} />
+                        </button>
+                        <span
+                          className={cn(
+                            "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[#e6e1d8] bg-[#f8f7f3] text-[#6f6a62]",
+                            done && "opacity-50",
+                          )}
+                        >
+                          <Icon size={16} />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Link
+                              href={item.href}
+                              className={cn(
+                                "text-[13.5px] font-semibold leading-snug transition group-hover:text-orange",
+                                done && "text-muted line-through decoration-[#c9c3b8]",
+                              )}
+                            >
+                              {item.title}
+                            </Link>
+                            <Badge tone={item.tone} className="!py-0.5 !text-[9.5px]">
+                              {item.badge}
+                            </Badge>
+                          </div>
+                          <p className="mt-1 text-[11.5px] leading-relaxed text-muted">
+                            {item.meta}
+                          </p>
                         </div>
-                        <p className="mt-1 text-[11.5px] leading-relaxed text-muted">
-                          {item.meta}
-                        </p>
+                        <Link
+                          href={item.href}
+                          className="mt-1 hidden shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium text-muted transition hover:bg-stone hover:text-ink sm:flex"
+                        >
+                          Open <ArrowRight size={11} />
+                        </Link>
                       </div>
-                      <Link
-                        href={item.href}
-                        className="mt-1 hidden shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium text-muted transition hover:bg-stone hover:text-ink sm:flex"
-                      >
-                        Open <ArrowRight size={11} />
-                      </Link>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
             <div className="flex items-center justify-between border-t border-[#ece8e0] bg-[#fbfaf7] px-5 py-3">
               <p className="text-[11px] text-muted">
-                Sources checked: 5 projects · 6 invoices · 4 findings
+                Sources checked: {projects.length} project
+                {projects.length === 1 ? "" : "s"} · {invoices.length} invoice
+                {invoices.length === 1 ? "" : "s"} · {scopeFindings.length} finding
+                {scopeFindings.length === 1 ? "" : "s"}
               </p>
               <Link
                 href="/app/activity"
@@ -524,7 +638,7 @@ export default function DashboardPage() {
                   (milestone) =>
                     milestone.dueAt.startsWith(iso) && milestone.status !== "done",
                 );
-                const isToday = iso === "2026-11-03";
+                const isToday = iso === weekStartIso;
                 return (
                   <Link
                     key={iso}
@@ -580,25 +694,57 @@ export default function DashboardPage() {
                   Money in motion
                 </h3>
                 <p className="mt-0.5 text-[11.5px] text-muted">
-                  {formatMoney(outstanding)} outstanding · {formatMoney(5000)}{" "}
-                  verified collected
+                  {formatMoney(outstanding)} outstanding · {formatMoney(collected)}{" "}
+                  collected
                 </p>
               </div>
               <div className="flex items-center gap-2">
-                <Badge tone="success" dot>
-                  PayPal verified
-                </Badge>
-                <Button size="sm" variant="ghost" onClick={sync} disabled={syncing}>
-                  <RefreshCw size={12} className={cn(syncing && "animate-spin")} />
-                  {syncing ? "Checking" : "Recheck"}
-                </Button>
+                {invoices.length === 0 ? (
+                  <Badge tone="neutral" dot>
+                    No invoices
+                  </Badge>
+                ) : invoices.some((invoice) => invoice.lastVerifiedAt) ? (
+                  <Badge tone="success" dot>
+                    Verified
+                  </Badge>
+                ) : (
+                  <Badge tone="neutral" dot>
+                    Not connected
+                  </Badge>
+                )}
+                {invoices.length > 0 ? (
+                  <Button size="sm" variant="ghost" onClick={sync} disabled={syncing}>
+                    <RefreshCw size={12} className={cn(syncing && "animate-spin")} />
+                    {syncing ? "Checking" : "Recheck"}
+                  </Button>
+                ) : null}
               </div>
             </div>
             <div className="divide-y divide-[#f0ece5]">
+              {openInvoices.length === 0 ? (
+                <p className="px-5 py-8 text-center text-[11.5px] text-muted">
+                  No open invoices. New payment requests appear here after you
+                  create one.
+                </p>
+              ) : null}
               {openInvoices.map((invoice) => {
-                const client = clients.find((item) => item.id === invoice.clientId)!;
-                const project = projects.find((item) => item.id === invoice.projectId)!;
+                const client = clients.find(
+                  (item) => item.id === invoice.clientId,
+                );
+                const project = projects.find(
+                  (item) => item.id === invoice.projectId,
+                );
                 const remaining = invoice.amount - invoice.amountPaid;
+                const overdueDays =
+                  invoice.status === "overdue"
+                    ? Math.max(
+                        1,
+                        differenceInCalendarDays(
+                          referenceDate,
+                          parseISO(invoice.dueAt),
+                        ),
+                      )
+                    : 0;
                 return (
                   <Link
                     key={invoice.id}
@@ -606,22 +752,23 @@ export default function DashboardPage() {
                     className="group flex items-center gap-3 px-5 py-3.5 transition hover:bg-[#fbfaf7]"
                   >
                     <Avatar
-                      name={client.name}
-                      initials={client.initials}
-                      hue={client.hue}
+                      name={client?.name ?? "Client"}
+                      initials={client?.initials ?? "—"}
+                      hue={client?.hue ?? "stone"}
                       size="md"
                     />
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="truncate text-[12.5px] font-semibold">
-                          {client.company}
+                          {client?.company ?? "Client"}
                         </p>
                         <span className="font-mono text-[9.5px] text-muted">
                           {invoice.number}
                         </span>
                       </div>
                       <p className="mt-0.5 truncate text-[11px] text-muted">
-                        {project.name} · due {format(parseISO(invoice.dueAt), "d MMM")}
+                        {project ? `${project.name} · ` : ""}due{" "}
+                        {format(parseISO(invoice.dueAt), "d MMM")}
                       </p>
                       {invoice.status === "partially_paid" ? (
                         <Progress
@@ -639,7 +786,7 @@ export default function DashboardPage() {
                         className="mt-1 !px-2 !py-0.5 !text-[9px]"
                       >
                         {invoice.status === "overdue"
-                          ? "2 days overdue"
+                          ? `${overdueDays} day${overdueDays === 1 ? "" : "s"} overdue`
                           : invoice.status === "partially_paid"
                             ? "Part paid"
                             : "Awaiting"}
@@ -704,7 +851,7 @@ export default function DashboardPage() {
                 {[
                   "What is due this week?",
                   "How much is still unpaid?",
-                  "What changed on Rahul's project?",
+                  "What changed on my projects?",
                 ].map((prompt) => (
                   <button
                     key={prompt}
@@ -770,7 +917,9 @@ export default function DashboardPage() {
                   </Button>
                 </div>
                 <p className="mt-2 text-center text-[9.5px] text-muted">
-                  Demo only — no real email leaves this browser.
+                  {isDemo
+                    ? "Demo only — no real email leaves this browser."
+                    : "Nothing is sent until you approve it."}
                 </p>
               </div>
             </Panel>
@@ -786,54 +935,63 @@ export default function DashboardPage() {
                 Open inbox
               </Link>
             </div>
-            <ul className="divide-y divide-[#f0ece5]">
-              {scopeFindings.slice(0, 3).map((finding) => {
-                const project = projects.find((item) => item.id === finding.projectId)!;
-                const review = state.findingReviews[finding.id];
-                const dismissed = review === "dismissed";
-                const accepted = review === "accepted";
-                return (
-                  <li key={finding.id} className="px-4 py-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-mono text-[9px] text-muted">
-                        {project.codename}
-                      </span>
-                      <Badge
-                        tone={accepted ? "success" : dismissed ? "neutral" : "warning"}
-                        className="!px-2 !py-0.5 !text-[9px]"
-                      >
-                        {accepted ? "Accepted" : dismissed ? "Dismissed" : "Needs review"}
-                      </Badge>
-                    </div>
-                    <Link
-                      href="/app/inbox"
-                      className="mt-1.5 block text-[12px] font-medium leading-snug hover:text-orange"
-                    >
-                      {finding.title}
-                    </Link>
-                    <div className="mt-2 flex items-center gap-2">
-                      <div className="h-1 flex-1 overflow-hidden rounded-full bg-[#ece8e0]">
-                        <div
-                          className={cn(
-                            "h-full rounded-full",
-                            finding.confidence > 0.8
-                              ? "bg-orange"
-                              : finding.confidence > 0.6
-                                ? "bg-[#e1a400]"
-                                : "bg-[#a8a297]",
-                          )}
-                          style={{ width: `${finding.confidence * 100}%` }}
-                        />
+            {scopeFindings.length === 0 ? (
+              <p className="px-4 py-8 text-center text-[11.5px] text-muted">
+                No client signals yet. Opted-in conversations appear here once
+                they are ingested.
+              </p>
+            ) : (
+              <ul className="divide-y divide-[#f0ece5]">
+                {scopeFindings.slice(0, 3).map((finding) => {
+                  const project = projects.find(
+                    (item) => item.id === finding.projectId,
+                  );
+                  const review =
+                    state.findingReviews[finding.id] ?? finding.reviewState;
+                  const dismissed = review === "dismissed";
+                  const accepted = review === "accepted";
+                  return (
+                    <li key={finding.id} className="px-4 py-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-mono text-[9px] text-muted">
+                          {project?.codename ?? "—"}
+                        </span>
+                        <Badge
+                          tone={accepted ? "success" : dismissed ? "neutral" : "warning"}
+                          className="!px-2 !py-0.5 !text-[9px]"
+                        >
+                          {accepted ? "Accepted" : dismissed ? "Dismissed" : "Needs review"}
+                        </Badge>
                       </div>
-                      <span className="tabular text-[9px] text-muted">
-                        {Math.round(finding.confidence * 100)}% confidence
-                      </span>
-                    </div>
-                    {!hydrated ? null : null}
-                  </li>
-                );
-              })}
-            </ul>
+                      <Link
+                        href="/app/inbox"
+                        className="mt-1.5 block text-[12px] font-medium leading-snug hover:text-orange"
+                      >
+                        {finding.title}
+                      </Link>
+                      <div className="mt-2 flex items-center gap-2">
+                        <div className="h-1 flex-1 overflow-hidden rounded-full bg-[#ece8e0]">
+                          <div
+                            className={cn(
+                              "h-full rounded-full",
+                              finding.confidence > 0.8
+                                ? "bg-orange"
+                                : finding.confidence > 0.6
+                                  ? "bg-[#e1a400]"
+                                  : "bg-[#a8a297]",
+                            )}
+                            style={{ width: `${finding.confidence * 100}%` }}
+                          />
+                        </div>
+                        <span className="tabular text-[9px] text-muted">
+                          {Math.round(finding.confidence * 100)}% confidence
+                        </span>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
           </Panel>
 
           <Panel className="overflow-hidden">
@@ -846,42 +1004,46 @@ export default function DashboardPage() {
                 All
               </Link>
             </div>
-            <ol className="space-y-0 px-4 py-1">
-              {state.activities.slice(0, 4).map((event, index) => (
-                <li key={event.id} className="flex gap-3 py-2.5">
-                  <div className="flex flex-col items-center">
-                    <span
-                      className={cn(
-                        "mt-1 h-1.5 w-1.5 rounded-full",
-                        event.status === "failed"
-                          ? "bg-danger"
-                          : event.status === "pending"
-                            ? "bg-warning"
-                            : event.status === "success"
-                              ? "bg-success"
-                              : "bg-[#b9b3a8]",
-                      )}
-                    />
-                    {index < 3 ? (
-                      <span className="mt-1 w-px flex-1 bg-[#e8e4dc]" />
-                    ) : null}
-                  </div>
-                  <div className="min-w-0 pb-1">
-                    <p className="text-[11.5px] font-medium leading-snug">
-                      {event.title}
-                    </p>
-                    <p className="mt-0.5 text-[10px] text-muted">
-                      {event.actor} · {formatTime(event.at)}
-                    </p>
-                  </div>
-                </li>
-              ))}
-            </ol>
+            {state.activities.length === 0 ? (
+              <p className="px-4 py-8 text-center text-[11.5px] text-muted">
+                No activity yet. Approved actions and syncs are recorded here.
+              </p>
+            ) : (
+              <ol className="space-y-0 px-4 py-1">
+                {state.activities.slice(0, 4).map((event, index) => (
+                  <li key={event.id} className="flex gap-3 py-2.5">
+                    <div className="flex flex-col items-center">
+                      <span
+                        className={cn(
+                          "mt-1 h-1.5 w-1.5 rounded-full",
+                          event.status === "failed"
+                            ? "bg-danger"
+                            : event.status === "pending"
+                              ? "bg-warning"
+                              : event.status === "success"
+                                ? "bg-success"
+                                : "bg-[#b9b3a8]",
+                        )}
+                      />
+                      {index < 3 ? (
+                        <span className="mt-1 w-px flex-1 bg-[#e8e4dc]" />
+                      ) : null}
+                    </div>
+                    <div className="min-w-0 pb-1">
+                      <p className="text-[11.5px] font-medium leading-snug">
+                        {event.title}
+                      </p>
+                      <p className="mt-0.5 text-[10px] text-muted">
+                        {event.actor} · {formatTime(event.at)}
+                      </p>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            )}
           </Panel>
         </div>
       </div>
-
-      {seedLeads.length === 0 ? null : null}
     </div>
   );
 }

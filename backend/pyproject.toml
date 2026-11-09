@@ -16,12 +16,16 @@ dependencies = [
   "structlog>=24.1",
   "jinja2>=3.1",
   "python-multipart>=0.0.9",
+  "reportlab>=4.2",
 ]
 
 [project.optional-dependencies]
 postgres = ["psycopg[binary]>=3.2"]
 reports = ["weasyprint>=62"]
-agent = ["google-genai>=1.0", "google-adk>=1.0"]
+agent = [
+    "google-genai>=1.0",
+    "google-adk>=1.0",
+]
 providers = [
   "google-api-python-client>=2.140",
   "google-auth-oauthlib>=1.2",

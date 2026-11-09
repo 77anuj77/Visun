@@ -13,6 +13,7 @@ import type {
   Project,
   Report,
   ScopeFinding,
+  WorkspaceReference,
 } from "./types";
 
 export const DEMO_DATE = "2026-11-03";
@@ -20,8 +21,8 @@ export const DEMO_NOW = "2026-11-03T14:12:00+05:30";
 
 export const workspace = {
   name: "Paroha Studio",
-  owner: "Ayush Paroha",
-  email: "ayush@parohastudio.com",
+  owner: "demo_user",
+  email: "demo_user@visun.demo",
   timezone: "Asia/Kolkata",
   plan: "Solo workspace",
 };
@@ -556,7 +557,7 @@ export const clientMessages: ClientMessage[] = [
     id: "msg-3",
     projectId: "p-northwind",
     platform: "Telegram",
-    sender: "Ayush Paroha",
+    sender: "demo_user",
     senderRole: "freelancer",
     text: "Design system is locked. Marketing build starts Monday — staging link will land Wednesday.",
     sentAt: "2026-10-31T11:04:00+05:30",
@@ -576,7 +577,7 @@ export const clientMessages: ClientMessage[] = [
     id: "msg-5",
     projectId: "p-fjord",
     platform: "Telegram",
-    sender: "Ayush Paroha",
+    sender: "demo_user",
     senderRole: "freelancer",
     text: "Yes — send the loop as an MP4 and I’ll wire it in. Keep it under 8 seconds so the mobile load stays quick.",
     sentAt: "2026-11-01T16:02:00+05:30",
@@ -1137,7 +1138,7 @@ export const conversations: Conversation[] = [
           title: "Overdue invoice reminder",
           recipient: "daniel@okaforlegal.com",
           subject: "Quick nudge — INV-1045 ($800)",
-          body: "Hi Daniel,\n\nA small nudge on INV-1045 for the intake workflow milestone — $800, which was due on 1 November.\n\nThe PayPal Sandbox invoice is here: paypal.com/invoice/INV2-K7Y3-9P2M-4Q6A. Happy to resend it if helpful.\n\nThanks,\nAyush",
+          body: "Hi Daniel,\n\nA small nudge on INV-1045 for the intake workflow milestone — $800, which was due on 1 November.\n\nThe PayPal Sandbox invoice is here: paypal.com/invoice/INV2-K7Y3-9P2M-4Q6A. Happy to resend it if helpful.\n\nThanks,\ndemo_user",
           amount: 800,
           currency: "USD",
           provider: "Gmail",
@@ -1252,8 +1253,29 @@ export const conversations: Conversation[] = [
   },
 ];
 
+export const emptyReference: WorkspaceReference = {
+  clients: [],
+  projects: [],
+  milestones: [],
+  agreements: [],
+  invoices: [],
+  scopeFindings: [],
+  messages: [],
+  integrations: [],
+};
+
 export const defaultState: AppState = {
-  version: 1,
+  version: 2,
+  reference: {
+    clients,
+    projects,
+    milestones,
+    agreements,
+    invoices,
+    scopeFindings,
+    messages: clientMessages,
+    integrations,
+  },
   findingReviews: Object.fromEntries(
     scopeFindings.map((finding) => [finding.id, finding.reviewState]),
   ),

@@ -26,7 +26,6 @@ import {
   Progress,
   useToast,
 } from "@/components/ui";
-import { clients, invoices, milestones, projects } from "@/lib/demo-data";
 import { useAppStore } from "@/lib/store";
 import type { Invoice } from "@/lib/types";
 import {
@@ -57,11 +56,14 @@ export default function PaymentsPage() {
   const router = useRouter();
   const { push } = useToast();
   const {
+    profile,
+    state,
     recheckPayments,
     createConversation,
     addMessage,
     addActivity,
   } = useAppStore();
+  const { clients, invoices, milestones, projects } = state.reference;
   const [filter, setFilter] = useState<FilterId>("all");
   const [query, setQuery] = useState("");
   const [detailId, setDetailId] = useState<string | null>(null);
@@ -93,7 +95,7 @@ export default function PaymentsPage() {
         project: projects.find((item) => item.id === invoice.projectId)!,
         remaining: invoice.amount - invoice.amountPaid,
       })),
-    [],
+    [clients, invoices, projects],
   );
 
   const filtered = useMemo(() => {
@@ -125,7 +127,7 @@ export default function PaymentsPage() {
     push({
       tone: "success",
       title: "PayPal Sandbox rechecked",
-      detail: "Six invoices reconciled. Statuses are unchanged in demo mode.",
+      detail: `${invoices.length} invoice${invoices.length === 1 ? "" : "s"} reconciled. Statuses are unchanged in demo mode.`,
     });
   };
 
@@ -187,7 +189,7 @@ export default function PaymentsPage() {
         body: `Hi ${client.name.split(" ")[0]},\n\nA small nudge on ${invoice.number} for ${project.name} — ${formatMoney(
           remaining,
           invoice.currency,
-        )}, which was due on ${formatDate(invoice.dueAt)}.\n\nThe ${invoice.provider} invoice reference is ${invoice.providerId}. Happy to resend it if helpful.\n\nThanks,\nAyush`,
+        )}, which was due on ${formatDate(invoice.dueAt)}.\n\nThe ${invoice.provider} invoice reference is ${invoice.providerId}. Happy to resend it if helpful.\n\nThanks,\n${profile.name}`,
         amount: remaining,
         currency: invoice.currency,
         provider: "Gmail",

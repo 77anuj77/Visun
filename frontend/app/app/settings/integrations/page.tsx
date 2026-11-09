@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ArrowUpRight,
   CalendarDays,
   Check,
+  KeyRound,
   Link2,
   Mail,
   MessageSquare,
@@ -22,7 +23,13 @@ import {
   Panel,
   useToast,
 } from "@/components/ui";
-import { integrations, workspace } from "@/lib/demo-data";
+import {
+  api,
+  type CredentialField,
+  type CredentialStatus,
+  type ProviderTestResult,
+} from "@/lib/api";
+import { integrations as integrationCatalog } from "@/lib/demo-data";
 import { useAppStore } from "@/lib/store";
 import type { Integration } from "@/lib/types";
 import { cn, formatDate, formatTime, relativeTime, sleep } from "@/lib/utils";
@@ -66,12 +73,110 @@ const limitations = [
 ];
 
 export default function IntegrationsPage() {
-  const { state, toggleIntegration, addActivity } = useAppStore();
+  const { state, profile, toggleIntegration, addActivity } = useAppStore();
+  const integrations = integrationCatalog.map((item) => {
+    const persisted = state.reference.integrations.find(
+      (row) => row.id === item.id,
+    );
+    return {
+      ...item,
+      // Provider names and scopes are static product copy, but demo-specific
+      // labels (such as opted-in group names) must never leak into a workspace
+      // that has no connection rows of its own.
+      env: persisted?.env ?? "Not connected",
+      connected: state.integrations[item.id] ?? persisted?.connected ?? false,
+      lastSync: persisted?.lastSync ?? null,
+    };
+  });
   const { push } = useToast();
   const [target, setTarget] = useState<Integration | null>(null);
   const [mode, setMode] = useState<"connect" | "revoke">("connect");
   const [acknowledged, setAcknowledged] = useState(false);
   const [busy, setBusy] = useState(false);
+
+  // Live credential configuration for one provider at a time.
+  const [credentialFor, setCredentialFor] = useState<Integration | null>(null);
+  const [credentialStatus, setCredentialStatus] = useState<CredentialStatus | null>(null);
+  const [credentialValues, setCredentialValues] = useState<Record<string, string>>({});
+  const [credentialBusy, setCredentialBusy] = useState(false);
+  const [credentialError, setCredentialError] = useState<string | null>(null);
+  const [testResult, setTestResult] = useState<ProviderTestResult | null>(null);
+  const [testing, setTesting] = useState<string | null>(null);
+
+  // AI model configuration (Google Gemini), stored encrypted per workspace.
+  const [aiStatus, setAiStatus] = useState<CredentialStatus | null>(null);
+  const [aiValues, setAiValues] = useState<Record<string, string>>({});
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiTest, setAiTest] = useState<ProviderTestResult | null>(null);
+
+  const loadAi = useCallback(async () => {
+    const result = await api.credentialStatus("gemini");
+    if (result.ok) {
+      setAiStatus(result.data);
+      setAiError(null);
+    } else {
+      setAiError(result.error);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadAi();
+  }, [loadAi]);
+
+  const saveAi = async () => {
+    setAiBusy(true);
+    setAiError(null);
+    const result = await api.saveCredentials("gemini", aiValues);
+    setAiBusy(false);
+    if (!result.ok) {
+      setAiError(result.error);
+      return;
+    }
+    setAiStatus(result.data);
+    setAiValues({});
+    push({
+      tone: "success",
+      title: "AI configuration saved",
+      detail: "The key is encrypted on the server. Run Test connection to validate the models.",
+    });
+  };
+
+  const testAi = async () => {
+    setAiBusy(true);
+    setAiError(null);
+    const result = await api.testProvider("gemini");
+    setAiBusy(false);
+    if (!result.ok) {
+      setAiError(result.error);
+      return;
+    }
+    setAiTest(result.data);
+    push({
+      tone: result.data.ok ? "success" : "error",
+      title: result.data.ok ? "Gemini configuration valid" : "Gemini test failed",
+      detail: result.data.detail,
+    });
+  };
+
+  const clearAi = async () => {
+    setAiBusy(true);
+    setAiError(null);
+    const result = await api.clearCredentials("gemini");
+    setAiBusy(false);
+    if (!result.ok) {
+      setAiError(result.error);
+      return;
+    }
+    setAiStatus(result.data);
+    setAiValues({});
+    setAiTest(null);
+    push({
+      tone: "info",
+      title: "AI configuration removed",
+      detail: "Stored values were deleted. Environment variables still apply if present.",
+    });
+  };
 
   const isConnected = (integration: Integration) =>
     state.integrations[integration.id] ?? integration.connected;
@@ -136,12 +241,90 @@ export default function IntegrationsPage() {
     });
   };
 
-  const verify = (integration: Integration) => {
+  /** Real, read-only call to the provider with the resolved credentials. */
+  const runTest = async (integration: Integration) => {
+    setTesting(integration.id);
+    setTestResult(null);
+    const result = await api.testProvider(integration.id);
+    setTesting(null);
+    if (!result.ok) {
+      push({
+        tone: "error",
+        title: `${integration.name} test did not run`,
+        detail: result.error,
+      });
+      return null;
+    }
+    setTestResult(result.data);
+    push({
+      tone: result.data.ok ? "success" : "error",
+      title: result.data.ok
+        ? `${integration.name} verified`
+        : `${integration.name} test failed`,
+      detail: result.data.detail,
+    });
+    return result.data;
+  };
+
+  const openCredentials = async (integration: Integration) => {
+    setCredentialFor(integration);
+    setCredentialStatus(null);
+    setCredentialValues({});
+    setCredentialError(null);
+    setTestResult(null);
+    const result = await api.credentialStatus(integration.id);
+    if (!result.ok) {
+      setCredentialError(result.error);
+      return;
+    }
+    setCredentialStatus(result.data);
+  };
+
+  const closeCredentials = () => {
+    if (credentialBusy) return;
+    setCredentialFor(null);
+    setCredentialStatus(null);
+    setCredentialValues({});
+    setCredentialError(null);
+    setTestResult(null);
+  };
+
+  const saveCredentials = async () => {
+    if (!credentialFor) return;
+    setCredentialBusy(true);
+    setCredentialError(null);
+    const result = await api.saveCredentials(credentialFor.id, credentialValues);
+    setCredentialBusy(false);
+    if (!result.ok) {
+      setCredentialError(result.error);
+      return;
+    }
+    setCredentialStatus(result.data);
+    setCredentialValues({});
+    push({
+      tone: "success",
+      title: `${credentialFor.name} credentials saved`,
+      detail: "Encrypted for this workspace. Run Test connection to confirm they work.",
+    });
+  };
+
+  const clearCredentials = async () => {
+    if (!credentialFor) return;
+    setCredentialBusy(true);
+    setCredentialError(null);
+    const result = await api.clearCredentials(credentialFor.id);
+    setCredentialBusy(false);
+    if (!result.ok) {
+      setCredentialError(result.error);
+      return;
+    }
+    setCredentialStatus(result.data);
+    setCredentialValues({});
+    setTestResult(null);
     push({
       tone: "info",
-      title: `${integration.name} not called`,
-      detail:
-        "This demo has no live credential, so Visun did not contact the provider. Last sync shown is seeded sample data.",
+      title: `${credentialFor.name} credentials removed`,
+      detail: "Stored values were deleted. Values from backend/.env still apply if present.",
     });
   };
 
@@ -168,7 +351,7 @@ export default function IntegrationsPage() {
             {connectedCount} of {integrations.length} connected
           </Badge>
           <Badge tone="neutral">
-            Workspace · {workspace.name}
+            Workspace · {profile.workspace}
           </Badge>
         </div>
       </section>
@@ -187,6 +370,127 @@ export default function IntegrationsPage() {
             tokens would be encrypted server-side and every scope would be shown
             on the provider&apos;s consent screen.
           </p>
+        </div>
+      </Panel>
+
+
+      <Panel className="overflow-hidden">
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#ece8e0] px-5 py-4">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="eyebrow !text-[9px]">AI model configuration</p>
+              <Badge tone={aiStatus?.configured ? "success" : "neutral"} dot={aiStatus?.configured}>
+                {aiStatus?.configured
+                  ? aiStatus?.source === "workspace"
+                    ? "Configured in this workspace"
+                    : "Using environment values"
+                  : "Not configured"}
+              </Badge>
+              {aiStatus?.configured && !aiStatus?.fields.find((field) => field.key === "live_model")?.configured ? (
+                <Badge tone="warning">Voice unavailable</Badge>
+              ) : null}
+            </div>
+            <p className="mt-1 text-[12px] font-semibold">Google Gemini for Copilot text and voice</p>
+            <p className="mt-1 max-w-2xl text-[10.5px] leading-relaxed text-muted">
+              The API key is encrypted with APP_ENCRYPTION_KEY and scoped to this
+              workspace. It is never returned to the browser. Model IDs are
+              validated against Google&apos;s model list — a name containing
+              &quot;live&quot; is not enough for voice.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button size="sm" variant="outline" onClick={() => void testAi()} loading={aiBusy}>
+              <RefreshCw size={12} /> Test connection
+            </Button>
+            {aiStatus?.source === "workspace" ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => void clearAi()}
+                disabled={aiBusy}
+                className="!text-[#8f2f28] hover:!bg-[#fbe9e7]"
+              >
+                Remove
+              </Button>
+            ) : null}
+          </div>
+        </div>
+        <div className="grid gap-3 p-5 sm:grid-cols-2">
+          {(aiStatus?.fields ?? []).map((field) => (
+            <label key={field.key} className={cn("block", field.key === "api_key" && "sm:col-span-2")}>
+              <span className="flex items-center justify-between gap-2">
+                <span className="text-[11.5px] font-semibold">
+                  {field.label}
+                  {field.key === "live_model" ? (
+                    <span className="ml-1 text-[9px] font-normal text-muted">optional</span>
+                  ) : null}
+                </span>
+                <span className="font-mono text-[8.5px] text-[#a19b91]">{field.envVar}</span>
+              </span>
+              <input
+                type={field.secret ? "password" : "text"}
+                autoComplete="off"
+                spellCheck={false}
+                value={aiValues[field.key] ?? (field.secret ? "" : field.value ?? "")}
+                placeholder={
+                  field.configured
+                    ? field.preview ?? "Saved — leave blank to keep"
+                    : field.placeholder ?? "Enter a value"
+                }
+                onChange={(event) =>
+                  setAiValues((current) => ({ ...current, [field.key]: event.target.value }))
+                }
+                className="mt-1.5 h-9 w-full rounded-lg border border-[#e2ddd3] bg-white px-2.5 font-mono text-[11px] text-ink outline-none focus:border-[#c9c2b5]"
+              />
+              {field.configured ? (
+                <span className="mt-1 block text-[9px] text-[#a19b91]">
+                  Currently set{field.preview ? ` · ${field.preview}` : ""}
+                </span>
+              ) : null}
+            </label>
+          ))}
+          {!aiStatus ? (
+            <p className="text-[11px] text-muted">Loading AI configuration…</p>
+          ) : null}
+        </div>
+        {aiError ? (
+          <div className="mx-5 mb-4 flex items-start gap-2 rounded-xl border border-[#ecc9c4] bg-[#fbe9e7] p-3">
+            <ShieldAlert size={14} className="mt-0.5 shrink-0 text-danger" />
+            <p className="text-[10.5px] leading-relaxed text-[#7d2a24]">{aiError}</p>
+          </div>
+        ) : null}
+        {aiTest ? (
+          <div
+            className={cn(
+              "mx-5 mb-4 flex items-start gap-2 rounded-xl border p-3",
+              aiTest.ok ? "border-[#c9e3d4] bg-[#f0f9f4]" : "border-[#ecc9c4] bg-[#fbe9e7]",
+            )}
+          >
+            {aiTest.ok ? (
+              <ShieldCheck size={14} className="mt-0.5 shrink-0 text-success" />
+            ) : (
+              <ShieldAlert size={14} className="mt-0.5 shrink-0 text-danger" />
+            )}
+            <div>
+              <p className="text-[11px] font-semibold">{aiTest.ok ? "Validated" : "Rejected"}</p>
+              <p className="mt-0.5 text-[10.5px] leading-relaxed text-muted">{aiTest.detail}</p>
+            </div>
+          </div>
+        ) : null}
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#ece8e0] bg-[#fcfbf9] px-5 py-3">
+          <p className="text-[9.5px] text-muted">
+            Leave a field blank to keep the saved value. Environment values
+            (GOOGLE_API_KEY, GEMINI_TEXT_MODEL, GEMINI_LIVE_MODEL) are the fallback.
+          </p>
+          <Button
+            size="sm"
+            variant="primary"
+            onClick={() => void saveAi()}
+            loading={aiBusy}
+            disabled={Object.values(aiValues).every((value) => !value.trim())}
+          >
+            <KeyRound size={12} /> Save configuration
+          </Button>
         </div>
       </Panel>
 
@@ -271,14 +575,22 @@ export default function IntegrationsPage() {
                     : "No credential stored"}
                 </p>
                 <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => void openCredentials(integration)}
+                  >
+                    <KeyRound size={12} /> Credentials
+                  </Button>
                   {connected ? (
                     <>
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => verify(integration)}
+                        loading={testing === integration.id}
+                        onClick={() => void runTest(integration)}
                       >
-                        <RefreshCw size={12} /> Verify
+                        <RefreshCw size={12} /> Test
                       </Button>
                       <Button
                         size="sm"
@@ -460,7 +772,7 @@ export default function IntegrationsPage() {
 
             <div className="flex items-center justify-between gap-2 rounded-lg bg-[#f8f6f1] px-3 py-2">
               <span className="text-[9.5px] text-muted">Workspace</span>
-              <span className="font-mono text-[9px]">{workspace.name}</span>
+              <span className="font-mono text-[9px]">{profile.workspace}</span>
             </div>
             <button
               type="button"
@@ -477,6 +789,199 @@ export default function IntegrationsPage() {
             >
               How scopes are enforced <ArrowUpRight size={10} />
             </button>
+          </div>
+        ) : null}
+      </Modal>
+
+      <Modal
+        open={Boolean(credentialFor)}
+        onClose={closeCredentials}
+        title={credentialFor ? `${credentialFor.name} credentials` : "Credentials"}
+        description="Saved values are encrypted for this workspace. Anything left empty falls back to the backend .env file."
+        size="md"
+        footer={
+          credentialFor ? (
+            <>
+              <Button size="md" variant="ghost" onClick={closeCredentials} disabled={credentialBusy}>
+                Close
+              </Button>
+              {credentialStatus?.source === "workspace" ? (
+                <Button
+                  size="md"
+                  variant="ghost"
+                  onClick={() => void clearCredentials()}
+                  disabled={credentialBusy}
+                  className="!text-[#8f2f28] hover:!bg-[#fbe9e7]"
+                >
+                  Remove stored
+                </Button>
+              ) : null}
+              <Button
+                size="md"
+                variant="primary"
+                onClick={() => void saveCredentials()}
+                loading={credentialBusy}
+                disabled={Object.values(credentialValues).every((value) => !value.trim())}
+              >
+                Save credentials
+              </Button>
+            </>
+          ) : null
+        }
+      >
+        {credentialFor ? (
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge
+                tone={
+                  credentialStatus?.source === "workspace"
+                    ? "success"
+                    : credentialStatus?.source === "environment"
+                      ? "info"
+                      : "neutral"
+                }
+                dot={Boolean(credentialStatus?.source)}
+              >
+                {credentialStatus?.source === "workspace"
+                  ? "Stored in this workspace"
+                  : credentialStatus?.source === "environment"
+                    ? "Using backend .env values"
+                    : "Not configured"}
+              </Badge>
+              {credentialStatus?.encryptionReady === false ? (
+                <Badge tone="warning">APP_ENCRYPTION_KEY missing</Badge>
+              ) : null}
+            </div>
+
+            {credentialError ? (
+              <div className="flex items-start gap-2 rounded-xl border border-[#ecc9c4] bg-[#fbe9e7] p-3">
+                <ShieldAlert size={14} className="mt-0.5 shrink-0 text-danger" />
+                <p className="text-[10.5px] leading-relaxed text-[#7d2a24]">{credentialError}</p>
+              </div>
+            ) : null}
+
+            {testResult ? (
+              <div
+                className={cn(
+                  "flex items-start gap-2 rounded-xl border p-3",
+                  testResult.ok
+                    ? "border-[#c9e3d4] bg-[#f0f9f4]"
+                    : "border-[#ecc9c4] bg-[#fbe9e7]",
+                )}
+              >
+                {testResult.ok ? (
+                  <ShieldCheck size={14} className="mt-0.5 shrink-0 text-success" />
+                ) : (
+                  <ShieldAlert size={14} className="mt-0.5 shrink-0 text-danger" />
+                )}
+                <div>
+                  <p
+                    className={cn(
+                      "text-[11px] font-semibold",
+                      testResult.ok ? "text-[#1e6344]" : "text-[#7d2a24]",
+                    )}
+                  >
+                    {testResult.ok ? "Provider accepted the credentials" : "Provider test failed"}
+                  </p>
+                  <p className="mt-0.5 text-[10.5px] leading-relaxed text-muted">
+                    {testResult.detail}
+                  </p>
+                  <p className="mt-1 font-mono text-[9px] text-[#a19b91]">
+                    checked {formatTime(testResult.checkedAt)}
+                    {testResult.source ? ` · source: ${testResult.source}` : ""}
+                  </p>
+                </div>
+              </div>
+            ) : null}
+
+            {credentialStatus ? (
+              <div className="space-y-3">
+                {credentialStatus.fields.map((field: CredentialField) => (
+                  <label key={field.key} className="block">
+                    <span className="flex items-center justify-between gap-2">
+                      <span className="text-[11.5px] font-semibold">{field.label}</span>
+                      <span className="font-mono text-[8.5px] text-[#a19b91]">{field.envVar}</span>
+                    </span>
+                    {field.options ? (
+                      <select
+                        value={
+                          credentialValues[field.key] ??
+                          (field.value as string | null) ??
+                          field.default ??
+                          field.options[0]
+                        }
+                        onChange={(event) =>
+                          setCredentialValues((current) => ({
+                            ...current,
+                            [field.key]: event.target.value,
+                          }))
+                        }
+                        className="mt-1.5 h-9 w-full rounded-lg border border-[#e2ddd3] bg-white px-2.5 text-[11.5px] text-ink outline-none focus:border-[#c9c2b5]"
+                      >
+                        {field.options.map((option) => (
+                          <option key={option} value={option}>
+                            {option}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type={field.secret ? "password" : "text"}
+                        autoComplete="off"
+                        spellCheck={false}
+                        value={credentialValues[field.key] ?? (field.secret ? "" : field.value ?? "")}
+                        placeholder={
+                          field.configured
+                            ? field.preview ?? "Saved — leave blank to keep"
+                            : field.secret
+                              ? "Paste the value"
+                              : field.default ?? ""
+                        }
+                        onChange={(event) =>
+                          setCredentialValues((current) => ({
+                            ...current,
+                            [field.key]: event.target.value,
+                          }))
+                        }
+                        className="mt-1.5 h-9 w-full rounded-lg border border-[#e2ddd3] bg-white px-2.5 font-mono text-[11px] text-ink outline-none focus:border-[#c9c2b5]"
+                      />
+                    )}
+                    {field.configured ? (
+                      <span className="mt-1 block text-[9px] text-[#a19b91]">
+                        Currently set{field.preview ? ` · ${field.preview}` : ""}. Submitting a new
+                        value replaces it.
+                      </span>
+                    ) : null}
+                  </label>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[11px] text-muted">Loading credential fields…</p>
+            )}
+
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#eae5dc] bg-[#fcfbf9] p-3">
+              <div className="min-w-0">
+                <p className="text-[10.5px] font-semibold">Test connection</p>
+                <p className="mt-0.5 text-[9.5px] leading-relaxed text-muted">
+                  One read-only call to {credentialFor.name}. Nothing is sent, created, or charged.
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                loading={testing === credentialFor.id}
+                onClick={() => void runTest(credentialFor)}
+              >
+                <RefreshCw size={12} /> Run test
+              </Button>
+            </div>
+
+            <p className="text-[9.5px] leading-relaxed text-muted">
+              Credentials are encrypted with APP_ENCRYPTION_KEY and scoped to this workspace. They
+              are never returned to the browser, and the shared demo workspace refuses to store
+              them. Provider writes still run in PROVIDER_MODE and still require per-payload
+              approval.
+            </p>
           </div>
         ) : null}
       </Modal>

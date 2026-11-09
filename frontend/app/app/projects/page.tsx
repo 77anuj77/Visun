@@ -4,16 +4,18 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  ArrowRight,
   ArrowUpRight,
   CalendarClock,
   Download,
   Filter,
   FolderKanban,
+  MoreHorizontal,
+  Pencil,
   Plus,
   Search,
   ShieldAlert,
   Sparkles,
+  Trash2,
   TrendingUp,
   Wallet,
 } from "lucide-react";
@@ -22,18 +24,14 @@ import {
   Badge,
   Button,
   EmptyState,
+  Modal,
   Panel,
   Progress,
   useToast,
 } from "@/components/ui";
-import {
-  clients,
-  invoices,
-  milestones,
-  projects,
-  scopeFindings,
-} from "@/lib/demo-data";
+import { ProjectDialog } from "@/components/projects/ProjectDialog";
 import { useAppStore } from "@/lib/store";
+import type { Project } from "@/lib/types";
 import { cn, formatDate, formatMoney, pct, sum } from "@/lib/utils";
 
 const filters = [
@@ -46,10 +44,17 @@ const filters = [
 export default function ProjectsPage() {
   const router = useRouter();
   const { push } = useToast();
-  const { state } = useAppStore();
+  const { state, createProject, updateProject, deleteProject } = useAppStore();
+  const { clients, projects, milestones, invoices, scopeFindings } =
+    state.reference;
   const [filter, setFilter] = useState<(typeof filters)[number]["id"]>("all");
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<"due" | "value" | "progress">("due");
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editing, setEditing] = useState<Project | null>(null);
+  const [deleting, setDeleting] = useState<Project | null>(null);
+  const [menuFor, setMenuFor] = useState<string | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   const enriched = useMemo(
     () =>
@@ -89,7 +94,7 @@ export default function ProjectsPage() {
             .sort((a, b) => a.dueAt.localeCompare(b.dueAt))[0],
         };
       }),
-    [state.doneMilestones, state.findingReviews],
+    [clients, invoices, milestones, projects, scopeFindings, state.doneMilestones, state.findingReviews],
   );
 
   const filtered = useMemo(() => {
@@ -168,14 +173,10 @@ export default function ProjectsPage() {
           <Button
             variant="primary"
             size="md"
-            onClick={() =>
-              push({
-                tone: "info",
-                title: "Ask the copilot to scope it",
-                detail:
-                  "Project creation is seeded in this demo. Use “Ask Visun” to draft a scope from a client message.",
-              })
-            }
+            onClick={() => {
+              setEditing(null);
+              setDialogOpen(true);
+            }}
           >
             <Plus size={14} /> New project
           </Button>
@@ -241,7 +242,7 @@ export default function ProjectsPage() {
         <EmptyState
           icon={<FolderKanban size={18} />}
           title="No projects match this view"
-          description="Clear the search or choose a different status. The demo workspace has five seeded projects."
+          description="Clear the search or choose a different status. Projects you add appear here."
           action={
             <Button
               variant="outline"
@@ -258,12 +259,12 @@ export default function ProjectsPage() {
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           {filtered.map(({ project, client, progress, outstanding, openFindings, nextMilestone }) => (
-            <Link
-              key={project.id}
-              href={`/app/projects/${project.id}`}
-              className="card-lift group flex flex-col overflow-hidden rounded-[22px] border border-[#e3dfd7] bg-white shadow-neu-sm"
-            >
-              <div className="flex items-start justify-between gap-3 px-5 pt-5">
+            <div key={project.id} className="relative">
+              <Link
+                href={`/app/projects/${project.id}`}
+                className="card-lift group flex h-full flex-col overflow-hidden rounded-[22px] border border-[#e3dfd7] bg-white shadow-neu-sm"
+              >
+              <div className="flex items-start justify-between gap-3 px-5 pt-5 pr-14">
                 <div className="flex min-w-0 items-center gap-2.5">
                   <Avatar
                     name={client.name}
@@ -360,7 +361,56 @@ export default function ProjectsPage() {
                   Open <ArrowUpRight size={12} />
                 </span>
               </div>
-            </Link>
+              </Link>
+
+              <div className="absolute right-3 top-3.5">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setMenuFor((current) =>
+                      current === project.id ? null : project.id,
+                    )
+                  }
+                  className="flex h-8 w-8 items-center justify-center rounded-full border border-transparent text-muted transition hover:border-[#e2ded6] hover:bg-[#f8f6f1] hover:text-ink"
+                  aria-label={`Actions for ${project.name}`}
+                  aria-expanded={menuFor === project.id}
+                >
+                  <MoreHorizontal size={15} />
+                </button>
+                {menuFor === project.id ? (
+                  <>
+                    <div
+                      className="fixed inset-0 z-20"
+                      onClick={() => setMenuFor(null)}
+                      aria-hidden="true"
+                    />
+                    <div className="absolute right-0 top-9 z-30 w-[168px] overflow-hidden rounded-xl border border-[#dcd7cd] bg-white p-1 shadow-[0_18px_40px_-18px_rgba(0,0,0,0.45)]">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMenuFor(null);
+                          setEditing(project);
+                          setDialogOpen(true);
+                        }}
+                        className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[12px] text-[#4c4943] transition hover:bg-[#f6f4ef] hover:text-ink"
+                      >
+                        <Pencil size={12} /> Edit project
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMenuFor(null);
+                          setDeleting(project);
+                        }}
+                        className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[12px] text-[#8f2f28] transition hover:bg-[#fbe9e7]"
+                      >
+                        <Trash2 size={12} /> Delete project
+                      </button>
+                    </div>
+                  </>
+                ) : null}
+              </div>
+            </div>
           ))}
         </div>
       )}
@@ -397,6 +447,92 @@ export default function ProjectsPage() {
           </Button>
         </div>
       </Panel>
+
+      <ProjectDialog
+        open={dialogOpen}
+        onClose={() => {
+          setDialogOpen(false);
+          setEditing(null);
+        }}
+        clients={clients}
+        project={editing}
+        onSubmit={async (draft) => {
+          const result = editing
+            ? await updateProject(editing.id, draft)
+            : await createProject(draft);
+          push(
+            result.ok
+              ? {
+                  tone: "success",
+                  title: editing ? "Project updated" : "Project created",
+                  detail: editing
+                    ? `${draft.name} now holds your manual edits. No provider was contacted.`
+                    : `${draft.name} is in this workspace. Integrations were not required.`,
+                }
+              : {
+                  tone: "error",
+                  title: "Project not saved",
+                  detail:
+                    result.error ??
+                    "The workspace rejected the change. Nothing was saved.",
+                },
+          );
+          return result;
+        }}
+      />
+
+      <Modal
+        open={deleting !== null}
+        onClose={() => setDeleting(null)}
+        title="Delete project"
+        description={
+          deleting
+            ? `${deleting.name} and the milestones, invoices, findings, and reports that belong to it will be removed from this workspace. Nothing is deleted at a provider.`
+            : undefined
+        }
+        size="sm"
+        footer={
+          <>
+            <Button variant="outline" size="sm" onClick={() => setDeleting(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              size="sm"
+              disabled={deleteBusy}
+              onClick={async () => {
+                if (!deleting) return;
+                setDeleteBusy(true);
+                const name = deleting.name;
+                const result = await deleteProject(deleting.id);
+                setDeleteBusy(false);
+                setDeleting(null);
+                push(
+                  result.ok
+                    ? {
+                        tone: "success",
+                        title: "Project deleted",
+                        detail: `${name} was removed from this workspace.`,
+                      }
+                    : {
+                        tone: "error",
+                        title: "Project not deleted",
+                        detail:
+                          result.error ?? "The workspace rejected the change.",
+                      },
+                );
+              }}
+            >
+              <Trash2 size={12} /> {deleteBusy ? "Deleting…" : "Delete project"}
+            </Button>
+          </>
+        }
+      >
+        <p className="text-[12px] leading-relaxed text-muted">
+          This cannot be undone. Re-check any client-facing report before you
+          delete a project that already has one.
+        </p>
+      </Modal>
     </div>
   );
 }

@@ -43,11 +43,12 @@ def create_schema() -> None:
 
 def init_db() -> None:
     """Make the workspace usable with no migration step on first run."""
-    from ..seed import seed_if_empty
+    from ..seed import ensure_demo_identity, seed_if_empty
 
     create_schema()
     with Session(engine) as session:
         seed_if_empty(session)
+        ensure_demo_identity(session)
 
 
 def get_session() -> Iterator[Session]:

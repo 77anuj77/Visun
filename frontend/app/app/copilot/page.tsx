@@ -47,7 +47,6 @@ import {
 } from "@/components/ui";
 import { buildAgentReply } from "@/lib/agent";
 import { api } from "@/lib/api";
-import { conversations as seedConversations, workspace } from "@/lib/demo-data";
 import { useAppStore } from "@/lib/store";
 import type { ChatMessage, Conversation, ProposedAction, Source } from "@/lib/types";
 import {
@@ -533,7 +532,7 @@ function MessageBubble({
             {message.text}
           </div>
         </div>
-        <Avatar name="Ayush Paroha" initials="AP" hue="orange" size="sm" />
+        <Avatar name="demo_user" initials="DU" hue="orange" size="sm" />
       </motion.div>
     );
   }
@@ -698,7 +697,7 @@ function InspectorContent({
           </div>
           <div className="flex items-center justify-between">
             <dt className="text-muted">Timezone</dt>
-            <dd className="font-mono text-[9.5px]">{workspace.timezone}</dd>
+            <dd className="font-mono text-[9.5px]">{state.preferences.timezone}</dd>
           </div>
         </dl>
         <div className="mt-3 border-t border-[#efebe3] pt-3">
@@ -1121,7 +1120,7 @@ function CopilotWorkspace() {
   const suggestedPrompts = [
     "What is due this week?",
     "How much is still unpaid?",
-    "What changed on Rahul's project?",
+    "What changed on my projects?",
     "Draft a reminder for the overdue invoice.",
   ];
 
@@ -1140,7 +1139,7 @@ function CopilotWorkspace() {
     },
   ].filter((group) => group.items.length > 0);
 
-  if (!hydrated && !seedConversations.length) {
+  if (!hydrated) {
     return null;
   }
 
@@ -1507,7 +1506,14 @@ function CopilotWorkspace() {
         {/* Inspector */}
         <aside className="hidden min-h-0 overflow-y-auto xl:block xl:h-[calc(100vh-190px)]">
           <InspectorContent
-            conversation={activeConversation ?? { ...seedConversations[0] }}
+            conversation={
+              activeConversation ?? {
+                id: "empty",
+                title: "New conversation",
+                updatedAt: new Date().toISOString(),
+                messages: [],
+              }
+            }
             selectedSource={selectedSource}
             onClearSource={() => setSelectedSource(null)}
           />
@@ -1521,7 +1527,14 @@ function CopilotWorkspace() {
         subtitle="Sources, tool calls, and approval state"
       >
         <InspectorContent
-          conversation={activeConversation ?? { ...seedConversations[0] }}
+          conversation={
+            activeConversation ?? {
+              id: "empty",
+              title: "New conversation",
+              updatedAt: new Date().toISOString(),
+              messages: [],
+            }
+          }
           selectedSource={selectedSource}
           onClearSource={() => setSelectedSource(null)}
         />

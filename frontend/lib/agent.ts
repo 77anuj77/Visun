@@ -41,7 +41,7 @@ function reminderAction(): ProposedAction {
     title: "Overdue invoice reminder",
     recipient: "daniel@okaforlegal.com",
     subject: "Quick nudge — INV-1045 ($800)",
-    body: "Hi Daniel,\n\nA small nudge on INV-1045 for the intake workflow milestone — $800, which was due on 1 November.\n\nThe PayPal Sandbox invoice is here: paypal.com/invoice/INV2-K7Y3-9P2M-4Q6A. Happy to resend it if helpful.\n\nThanks,\nAyush",
+    body: "Hi Daniel,\n\nA small nudge on INV-1045 for the intake workflow milestone — $800, which was due on 1 November.\n\nThe PayPal Sandbox invoice is here: paypal.com/invoice/INV2-K7Y3-9P2M-4Q6A. Happy to resend it if helpful.\n\nThanks,\ndemo_user",
     amount: 800,
     currency: "USD",
     provider: "Gmail",

@@ -27,13 +27,7 @@ import {
   Switch,
   useToast,
 } from "@/components/ui";
-import {
-  clients,
-  invoices,
-  milestones,
-  projects,
-  scopeFindings,
-} from "@/lib/demo-data";
+import { api } from "@/lib/api";
 import { useAppStore } from "@/lib/store";
 import type { Report } from "@/lib/types";
 import {
@@ -84,12 +78,12 @@ function ReportWorkspace() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { push } = useToast();
-  const { state, addReport, sendReport, addActivity } = useAppStore();
+  const { state, profile, addReport, sendReport, addActivity } = useAppStore();
   const [builderOpen, setBuilderOpen] = useState(
     searchParams.get("generate") === "1",
   );
   const [projectId, setProjectId] = useState(
-    searchParams.get("project") ?? "p-northwind",
+    searchParams.get("project") ?? "",
   );
   const [rangeStart, setRangeStart] = useState("2026-10-27");
   const [rangeEnd, setRangeEnd] = useState("2026-11-02");
@@ -106,16 +100,40 @@ function ReportWorkspace() {
   const [sendId, setSendId] = useState<string | null>(null);
   const [approval, setApproval] = useState(false);
   const [sending, setSending] = useState(false);
+  const [generating, setGenerating] = useState(false);
   const [generatedMeta, setGeneratedMeta] = useState<
     Record<string, { facts: string[]; narrative: string }>
   >({});
 
-  const project = projects.find((item) => item.id === projectId)!;
-  const client = clients.find((item) => item.id === project.clientId)!;
+  // The signed-in workspace's own records. A brand-new account has none, which
+  // the page states plainly instead of showing sample projects.
+  const projects = state.reference.projects;
+  const clients = state.reference.clients;
+  const milestones = state.reference.milestones;
+  const invoices = state.reference.invoices;
+  const scopeFindings = state.reference.scopeFindings;
+
+  const project =
+    projects.find((item) => item.id === projectId) ?? projects.at(0);
+  const client = project
+    ? clients.find((item) => item.id === project.clientId)
+    : undefined;
 
   const facts = useMemo(() => {
+    if (!project) {
+      return {
+        done: [] as typeof milestones,
+        upcoming: [] as typeof milestones,
+        projectInvoices: [] as typeof invoices,
+        overdueInvoices: [] as typeof invoices,
+        openInvoices: [] as typeof invoices,
+        findings: [] as typeof scopeFindings,
+        openFindings: [] as typeof scopeFindings,
+        outstanding: 0,
+      };
+    }
     const projectMilestones = milestones.filter(
-      (milestone) => milestone.projectId === projectId,
+      (milestone) => milestone.projectId === project.id,
     );
     const done = projectMilestones.filter(
       (milestone) =>
@@ -131,7 +149,7 @@ function ReportWorkspace() {
       )
       .sort((a, b) => a.dueAt.localeCompare(b.dueAt));
     const projectInvoices = invoices.filter(
-      (invoice) => invoice.projectId === projectId,
+      (invoice) => invoice.projectId === project.id,
     );
     const overdueInvoices = projectInvoices.filter(
       (invoice) => invoice.status === "overdue",
@@ -140,7 +158,7 @@ function ReportWorkspace() {
       ["sent", "overdue", "partially_paid"].includes(invoice.status),
     );
     const findings = scopeFindings.filter(
-      (finding) => finding.projectId === projectId,
+      (finding) => finding.projectId === project.id,
     );
     const openFindings = findings.filter((finding) => {
       const review = state.findingReviews[finding.id];
@@ -158,7 +176,16 @@ function ReportWorkspace() {
         openInvoices.map((invoice) => invoice.amount - invoice.amountPaid),
       ),
     };
-  }, [projectId, rangeEnd, rangeStart, state.doneMilestones, state.findingReviews]);
+  }, [
+    invoices,
+    milestones,
+    project,
+    rangeEnd,
+    rangeStart,
+    scopeFindings,
+    state.doneMilestones,
+    state.findingReviews,
+  ]);
 
   const previewLines = useMemo(() => {
     const lines: string[] = [];
@@ -233,29 +260,55 @@ function ReportWorkspace() {
     ? state.reports.find((report) => report.id === sendId)
     : null;
 
-  const generate = () => {
+  const generate = async () => {
+    if (!project || !client) {
+      push({
+        tone: "error",
+        title: "No project to report on",
+        detail: "Add a project first, or ask the Copilot to create one.",
+      });
+      return;
+    }
+    setGenerating(true);
+    const period = `${formatDate(rangeStart, "d MMM")} – ${formatDate(rangeEnd, "d MMM yyyy")}`;
+    // The backend builds the facts from stored records; the browser only falls
+    // back to its own lines when the API rejects the preview.
+    let reportFacts = previewLines;
+    let summary = previewLines.join(" ");
+    const previewResult = await api.previewReport({
+      project_id: project.id,
+      period,
+      include_narrative: includeNarrative,
+    });
+    if (previewResult.ok) {
+      reportFacts = previewResult.data.facts;
+      summary = previewResult.data.summary;
+    } else {
+      push({
+        tone: "error",
+        title: "Backend preview failed",
+        detail: `${previewResult.error} Saving the local draft instead.`,
+      });
+    }
+    setGenerating(false);
     const report: Report = {
       id: uid("rep"),
       title: `${client.company} — ${formatDate(rangeStart, "d MMM")} to ${formatDate(rangeEnd, "d MMM")}`,
-      projectId,
+      projectId: project.id,
       clientId: client.id,
-      period: `${formatDate(rangeStart, "d MMM")} – ${formatDate(rangeEnd, "d MMM yyyy")}`,
+      period,
       createdAt: new Date().toISOString(),
       status: "draft",
       pages: Math.max(1, Math.ceil(activeSectionCount / 2)),
-      summary: previewLines.join(" "),
+      summary,
     };
     addReport(report);
     setGeneratedMeta((current) => ({
       ...current,
       [report.id]: {
-        facts: previewLines,
+        facts: reportFacts,
         narrative: includeNarrative
-          ? `${client.company} is ${project.progress}% through ${project.name}. The workspace records ${facts.done.length} completed milestone${
-              facts.done.length === 1 ? "" : "s"
-            } in this period and ${facts.openFindings.length} open scope question${
-              facts.openFindings.length === 1 ? "" : "s"
-            }. Nothing was inferred beyond the stored records; verify the summary before sending.`
+          ? summary
           : "No AI narrative was added. This report contains source-backed facts only.",
       },
     }));
@@ -266,12 +319,12 @@ function ReportWorkspace() {
       detail: `${report.title} was built from stored milestones, invoices, and findings. Not sent.`,
       status: "info",
       reference: report.id,
-      projectId,
+      projectId: project.id,
     });
     push({
       tone: "success",
       title: "Draft generated",
-      detail: "Review the facts and narrative before approving delivery.",
+      detail: `${reportFacts.length} record-backed fact(s). Review before approving delivery.`,
     });
     setBuilderOpen(false);
     setPreviewId(report.id);
@@ -303,43 +356,32 @@ function ReportWorkspace() {
     });
   };
 
-  const download = (report: Report) => {
-    const meta = generatedMeta[report.id];
-    const lines = [
-      report.title,
-      report.period,
-      `Client: ${clients.find((item) => item.id === report.clientId)?.company ?? "—"}`,
-      "",
-      "SOURCE-BACKED FACTS",
-      ...(meta?.facts.length
-        ? meta.facts.map((line) => `- ${line}`)
-        : ["- Facts are derived from stored milestones, invoices, and findings."]),
-      "",
-      "NARRATIVE SUMMARY — VERIFY BEFORE SENDING",
-      report.summary,
-      "",
-      `Status: ${report.status}`,
-      report.providerMessageId
-        ? `Provider message: ${report.providerMessageId}`
-        : "No provider receipt recorded.",
-      "",
-      "Exported from Visun demo workspace. PayPal Sandbox — no money moved.",
-    ];
-    const blob = new Blob([lines.join("\n")], {
-      type: "text/plain;charset=utf-8;",
-    });
-    const url = URL.createObjectURL(blob);
+  const download = async (report: Report) => {
+    const result = await api.downloadReport(report.id);
+    if (!result.ok) {
+      push({
+        tone: "error",
+        title: "Download failed",
+        detail: `${result.error} Nothing was exported.`,
+      });
+      return;
+    }
+    const url = URL.createObjectURL(result.blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `${report.title.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.txt`;
+    link.download = result.filename;
+    document.body.appendChild(link);
     link.click();
+    link.remove();
     URL.revokeObjectURL(url);
     push({
       tone: "success",
-      title: "Text copy downloaded",
-      detail: "A plain-text report was saved locally. PDF export is not implemented.",
+      title: "PDF downloaded",
+      detail: "Rendered by the backend from this workspace's stored records.",
     });
   };
+
+
 
   const openSend = (report: Report) => {
     setSendId(report.id);
@@ -351,6 +393,44 @@ function ReportWorkspace() {
         `${preview.summary}`,
       ]
     : [];
+
+  if (projects.length === 0) {
+    return (
+      <div className="space-y-6">
+        <section>
+          <p className="eyebrow">Reports</p>
+          <h2 className="mt-1.5 text-[clamp(1.8rem,2.8vw,2.3rem)] font-semibold leading-tight tracking-[-0.035em]">
+            Client updates, built from your records
+          </h2>
+          <p className="mt-1 max-w-2xl text-[13px] leading-relaxed text-muted">
+            A report can only cite work that exists in this workspace. Add a
+            project with milestones or invoices, then generate a source-backed
+            draft here or ask the Copilot.
+          </p>
+        </section>
+        <Panel className="p-4">
+          <EmptyState
+            icon={<FileText size={18} />}
+            title="This workspace has no projects yet"
+            description="Nothing was invented to fill the gap. Create a project yourself, or tell the Copilot what you are working on and it will create the project, deadline, and draft."
+            action={
+              <div className="flex flex-wrap justify-center gap-2">
+                <Button variant="primary" size="sm" onClick={() => router.push("/app/projects")}>
+                  <Plus size={12} /> New project
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => router.push("/app/copilot")}>
+                  <Sparkles size={12} /> Ask the Copilot
+                </Button>
+              </div>
+            }
+          />
+        </Panel>
+      </div>
+    );
+  }
+
+  // Unreachable after the empty-workspace gate; narrows the types for the page.
+  if (!project || !client) return null;
 
   return (
     <div className="space-y-6">
@@ -386,6 +466,7 @@ function ReportWorkspace() {
             variant="primary"
             size="md"
             onClick={() => setBuilderOpen((open) => !open)}
+            disabled={projects.length === 0}
           >
             {builderOpen ? <ChevronUp size={14} /> : <Plus size={14} />}
             {builderOpen ? "Hide builder" : "Generate report"}
@@ -398,7 +479,7 @@ function ReportWorkspace() {
           {
             label: "Reports",
             value: String(state.reports.length),
-            hint: "Across 3 projects",
+            hint: `${projects.length} project${projects.length === 1 ? "" : "s"}`,
             icon: FileText,
           },
           {
@@ -584,7 +665,8 @@ function ReportWorkspace() {
                 variant="primary"
                 size="md"
                 className="w-full"
-                onClick={generate}
+                onClick={() => void generate()}
+                loading={generating}
                 disabled={activeSectionCount === 0}
               >
                 <FileText size={14} /> Generate draft
@@ -969,7 +1051,7 @@ function ReportWorkspace() {
                 <br />
                 Best,
                 <br />
-                Ayush
+                {profile.name}
               </p>
             </div>
             <label className="flex items-start gap-2.5 rounded-xl border border-[#ecd9a3] bg-[#fff9e8] p-3">

@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { api, configureApiAuth, type BootstrapResponse } from "./api";
-import { defaultState, workspace as demoWorkspace } from "./demo-data";
+import { defaultState, emptyReference, workspace as demoWorkspace } from "./demo-data";
 import type {
   ActionStatus,
   ActivityEvent,
@@ -18,7 +18,9 @@ import type {
   ChatMessage,
   Lead,
   LeadStage,
+  MilestoneStatus,
   Preferences,
+  ProjectStatus,
   ProposedAction,
   Report,
   ReviewState,
@@ -27,7 +29,51 @@ import { uid } from "./utils";
 
 const STORAGE_KEY = "visun.demo.state.v1";
 
+/**
+ * A signed-in workspace starts blank. Nothing from the seeded demo may render
+ * before the user's own snapshot arrives, and a missing snapshot never falls
+ * back to sample records.
+ */
+const emptyState: AppState = {
+  version: defaultState.version,
+  reference: emptyReference,
+  findingReviews: {},
+  actions: {},
+  integrations: {},
+  leads: [],
+  reports: [],
+  conversations: [],
+  activities: [],
+  doneMilestones: [],
+  preferences: defaultState.preferences,
+};
+
 type ActivityInput = Omit<ActivityEvent, "id" | "at"> & { at?: string };
+
+/** Everything a person can type into the New/Edit project dialog. */
+export type ProjectDraft = {
+  name: string;
+  status: ProjectStatus;
+  budget: number;
+  dueAt: string;
+  description?: string;
+  codename?: string;
+  /** An existing client, or the three fields below for a new one. */
+  clientId?: string;
+  clientName?: string;
+  clientCompany?: string;
+  clientEmail?: string;
+};
+
+export type MilestoneDraft = {
+  title: string;
+  dueAt: string;
+  status?: MilestoneStatus;
+  acceptance?: string;
+  value?: number;
+};
+
+export type MutationResult = { ok: boolean; error?: string };
 
 export type ConnectionState = "checking" | "online" | "offline";
 
@@ -46,7 +92,12 @@ type StoreValue = {
   providerMode: "simulated" | "real";
   authMode: "demo" | "clerk";
   apiAgent: string;
-  profile: { name: string; email: string; workspace: string };
+  profile: {
+    name: string;
+    email: string;
+    workspace: string;
+    plan: string;
+  };
   isDemo: boolean;
   refresh: () => Promise<void>;
   noteApiFailure: (error: string) => void;
@@ -70,6 +121,18 @@ type StoreValue = {
   deleteConversation: (id: string) => void;
   addLead: (lead: Lead) => void;
   moveLead: (id: string, stage: LeadStage) => Promise<void>;
+  createProject: (draft: ProjectDraft) => Promise<MutationResult>;
+  updateProject: (id: string, draft: ProjectDraft) => Promise<MutationResult>;
+  deleteProject: (id: string) => Promise<MutationResult>;
+  createMilestone: (
+    projectId: string,
+    draft: MilestoneDraft,
+  ) => Promise<MutationResult>;
+  updateMilestone: (
+    id: string,
+    draft: MilestoneDraft,
+  ) => Promise<MutationResult>;
+  deleteMilestone: (id: string) => Promise<MutationResult>;
   addReport: (report: Report) => void;
   sendReport: (
     reportId: string,
@@ -105,7 +168,9 @@ export function AppStoreProvider({
   demo = false,
   authenticated = false,
 }: AppStoreProviderProps) {
-  const [state, setState] = useState<AppState>(defaultState);
+  const [state, setState] = useState<AppState>(() =>
+    authenticated ? emptyState : defaultState,
+  );
   const [hydrated, setHydrated] = useState(false);
   const [workspaceLoaded, setWorkspaceLoaded] = useState(false);
   const [connection, setConnection] = useState<ConnectionState>("checking");
@@ -119,6 +184,7 @@ export function AppStoreProvider({
     name: demoWorkspace.owner,
     email: demoWorkspace.email,
     workspace: demoWorkspace.name,
+    plan: demoWorkspace.plan,
   });
   // Only the demo snapshot is cached in the browser. An authenticated workspace
   // always re-reads from the API so a shared browser never shows another
@@ -133,7 +199,14 @@ export function AppStoreProvider({
   }, [getToken, demo]);
 
   const applySnapshot = useCallback((snapshot: BootstrapResponse) => {
-    setState(snapshot.state);
+    // Reference records (clients, projects, milestones, invoices, findings) come
+    // from the same workspace snapshot, so no screen falls back to sample data.
+    setState({
+      ...snapshot.state,
+      reference:
+        snapshot.reference ??
+        (authenticated ? emptyReference : defaultState.reference),
+    });
     setProviderMode(snapshot.providerMode);
     setAuthMode(snapshot.authMode);
     setApiAgent(snapshot.agent?.backend ?? "deterministic");
@@ -141,6 +214,7 @@ export function AppStoreProvider({
       name: snapshot.user.name,
       email: snapshot.user.email,
       workspace: snapshot.workspace.name,
+      plan: snapshot.workspace.plan || "Workspace",
     });
     setConnection("online");
     setConnectionError(null);
@@ -154,7 +228,7 @@ export function AppStoreProvider({
     } catch {
       // Quota or private mode — the in-memory snapshot is still authoritative.
     }
-  }, [storageKey]);
+  }, [authenticated, storageKey]);
 
   const refresh = useCallback(async () => {
     setConnection("checking");
@@ -178,7 +252,13 @@ export function AppStoreProvider({
       if (raw) {
         const parsed = JSON.parse(raw) as AppState;
         if (parsed.version === defaultState.version) {
-          setState(parsed);
+          // A cache written before `reference` existed must not leave the app
+          // without workspace records; the server snapshot replaces it anyway.
+          setState({
+            ...defaultState,
+            ...parsed,
+            reference: parsed.reference ?? defaultState.reference,
+          });
         }
       }
     } catch {
@@ -514,6 +594,204 @@ export function AppStoreProvider({
     [noteFailure],
   );
 
+  const createProject = useCallback(
+    async (draft: ProjectDraft): Promise<MutationResult> => {
+      const result = await api.createProject({
+        name: draft.name.trim(),
+        client_id: draft.clientId || undefined,
+        client_name: draft.clientId ? undefined : draft.clientName?.trim(),
+        client_company: draft.clientId
+          ? undefined
+          : draft.clientCompany?.trim(),
+        client_email: draft.clientId ? undefined : draft.clientEmail?.trim(),
+        codename: draft.codename?.trim() || undefined,
+        description: draft.description?.trim(),
+        status: draft.status,
+        budget: draft.budget,
+        due_at: draft.dueAt || null,
+      });
+      if (!result.ok) {
+        noteFailure(result.error);
+        return { ok: false, error: result.error };
+      }
+      const { project, client } = result.data;
+      setState((current) => ({
+        ...current,
+        reference: {
+          ...current.reference,
+          projects: [...current.reference.projects, project].sort((a, b) =>
+            a.dueAt.localeCompare(b.dueAt),
+          ),
+          clients: current.reference.clients.some(
+            (row) => row.id === client.id,
+          )
+            ? current.reference.clients
+            : [...current.reference.clients, client],
+        },
+      }));
+      return { ok: true };
+    },
+    [noteFailure],
+  );
+
+  const updateProject = useCallback(
+    async (id: string, draft: ProjectDraft): Promise<MutationResult> => {
+      const result = await api.updateProject(id, {
+        name: draft.name.trim(),
+        client_id: draft.clientId || undefined,
+        codename: draft.codename?.trim() || undefined,
+        description: draft.description?.trim(),
+        status: draft.status,
+        budget: draft.budget,
+        due_at: draft.dueAt || null,
+      });
+      if (!result.ok) {
+        noteFailure(result.error);
+        return { ok: false, error: result.error };
+      }
+      const updated = result.data.project;
+      setState((current) => ({
+        ...current,
+        reference: {
+          ...current.reference,
+          projects: current.reference.projects.map((project) =>
+            project.id === id ? { ...project, ...updated } : project,
+          ),
+        },
+      }));
+      return { ok: true };
+    },
+    [noteFailure],
+  );
+
+  const deleteProject = useCallback(
+    async (id: string): Promise<MutationResult> => {
+      const result = await api.deleteProject(id);
+      if (!result.ok) {
+        noteFailure(result.error);
+        return { ok: false, error: result.error };
+      }
+      setState((current) => ({
+        ...current,
+        reference: {
+          ...current.reference,
+          projects: current.reference.projects.filter(
+            (project) => project.id !== id,
+          ),
+          milestones: current.reference.milestones.filter(
+            (milestone) => milestone.projectId !== id,
+          ),
+          invoices: current.reference.invoices.filter(
+            (invoice) => invoice.projectId !== id,
+          ),
+          scopeFindings: current.reference.scopeFindings.filter(
+            (finding) => finding.projectId !== id,
+          ),
+          messages: current.reference.messages.filter(
+            (message) => message.projectId !== id,
+          ),
+          agreements: current.reference.agreements.filter(
+            (agreement) => agreement.projectId !== id,
+          ),
+        },
+        reports: current.reports.filter(
+          (report) => report.projectId !== id,
+        ),
+        doneMilestones: current.doneMilestones.filter((milestoneId) =>
+          current.reference.milestones.some(
+            (milestone) =>
+              milestone.id === milestoneId && milestone.projectId !== id,
+          ),
+        ),
+      }));
+      return { ok: true };
+    },
+    [noteFailure],
+  );
+
+  const createMilestone = useCallback(
+    async (
+      projectId: string,
+      draft: MilestoneDraft,
+    ): Promise<MutationResult> => {
+      const result = await api.createMilestone(projectId, {
+        title: draft.title.trim(),
+        due_at: draft.dueAt,
+        status: draft.status,
+        acceptance: draft.acceptance?.trim(),
+        value: draft.value,
+      });
+      if (!result.ok) {
+        noteFailure(result.error);
+        return { ok: false, error: result.error };
+      }
+      const milestone = result.data.milestone;
+      setState((current) => ({
+        ...current,
+        reference: {
+          ...current.reference,
+          milestones: [...current.reference.milestones, milestone].sort(
+            (a, b) => a.dueAt.localeCompare(b.dueAt),
+          ),
+        },
+      }));
+      return { ok: true };
+    },
+    [noteFailure],
+  );
+
+  const updateMilestone = useCallback(
+    async (id: string, draft: MilestoneDraft): Promise<MutationResult> => {
+      const result = await api.updateMilestone(id, {
+        title: draft.title.trim(),
+        due_at: draft.dueAt,
+        status: draft.status,
+        acceptance: draft.acceptance?.trim(),
+        value: draft.value,
+      });
+      if (!result.ok) {
+        noteFailure(result.error);
+        return { ok: false, error: result.error };
+      }
+      const milestone = result.data.milestone;
+      setState((current) => ({
+        ...current,
+        reference: {
+          ...current.reference,
+          milestones: current.reference.milestones
+            .map((row) => (row.id === id ? { ...row, ...milestone } : row))
+            .sort((a, b) => a.dueAt.localeCompare(b.dueAt)),
+        },
+      }));
+      return { ok: true };
+    },
+    [noteFailure],
+  );
+
+  const deleteMilestone = useCallback(
+    async (id: string): Promise<MutationResult> => {
+      const result = await api.deleteMilestone(id);
+      if (!result.ok) {
+        noteFailure(result.error);
+        return { ok: false, error: result.error };
+      }
+      setState((current) => ({
+        ...current,
+        reference: {
+          ...current.reference,
+          milestones: current.reference.milestones.filter(
+            (milestone) => milestone.id !== id,
+          ),
+        },
+        doneMilestones: current.doneMilestones.filter(
+          (milestoneId) => milestoneId !== id,
+        ),
+      }));
+      return { ok: true };
+    },
+    [noteFailure],
+  );
+
   const addReport = useCallback(
     (report: Report) => {
       setState((current) => ({
@@ -678,14 +956,14 @@ export function AppStoreProvider({
 
   const resetDemo = useCallback(async () => {
     window.localStorage.removeItem(STORAGE_KEY);
-    setState(defaultState);
+    setState(authenticated ? emptyState : defaultState);
     const result = await api.resetDemo();
     if (!result.ok) {
       noteFailure(result.error);
       return;
     }
     await refresh();
-  }, [noteFailure, refresh]);
+  }, [authenticated, noteFailure, refresh]);
 
   const value = useMemo<StoreValue>(
     () => ({
@@ -712,6 +990,12 @@ export function AppStoreProvider({
       deleteConversation,
       addLead,
       moveLead,
+      createProject,
+      updateProject,
+      deleteProject,
+      createMilestone,
+      updateMilestone,
+      deleteMilestone,
       addReport,
       sendReport,
       toggleIntegration,
@@ -743,6 +1027,12 @@ export function AppStoreProvider({
       deleteConversation,
       addLead,
       moveLead,
+      createProject,
+      updateProject,
+      deleteProject,
+      createMilestone,
+      updateMilestone,
+      deleteMilestone,
       addReport,
       sendReport,
       toggleIntegration,

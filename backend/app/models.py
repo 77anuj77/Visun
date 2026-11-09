@@ -333,6 +333,26 @@ class Report(SQLModel, table=True):
     simulated: bool = False
 
 
+class ProviderCredential(SQLModel, table=True):
+    """Encrypted provider credentials a workspace configured from Settings.
+
+    Secrets are only ever stored as Fernet ciphertext and are never returned by
+    an endpoint; reads are reduced to a masked preview. Rows are per workspace,
+    so one account's keys can never be used by another.
+    """
+
+    __tablename__ = "provider_credentials"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "provider", name="uq_workspace_credential"),
+    )
+
+    id: str = Field(primary_key=True)
+    workspace_id: str = Field(foreign_key="workspaces.id", index=True)
+    provider: str
+    ciphertext: str
+    updated_at: datetime = Field(default_factory=utcnow)
+
+
 class IntegrationConnection(SQLModel, table=True):
     __tablename__ = "integration_connections"
     __table_args__ = (

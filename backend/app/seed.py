@@ -4,6 +4,7 @@ IDs intentionally match the frontend seed so the UI can swap between the local
 fallback and this API without remapping relationships. Financial rows use cents.
 """
 
+import hashlib
 from typing import Any
 
 from sqlmodel import Session, select
@@ -39,7 +40,187 @@ WORKSPACE_ID = "ws-paroha"
 USER_ID = "u-ayush"
 CLERK_ID = "user_demo_ayush"
 
+# The only signed-in account that keeps a populated workspace. Every other
+# account starts empty: sample records are never injected into someone else's
+# data. Match on the verified Clerk email rather than a Clerk id, because ids
+# differ between Clerk instances while the owner's address stays stable.
+SAMPLE_EMAIL = "anujparoha07@gmail.com"
+# Kept for tests and older references that still identify the sample account.
+SAMPLE_CLERK_ID = "user_3LdlhPMLYUPRYRxwuKHimR5nCK1"
+
+# The credential-free "Open demo" workspace is a product sandbox, not a person.
+DEMO_USER_NAME = "demo_user"
+DEMO_USER_EMAIL = "demo_user@visun.demo"
+
 d = parse_dt
+
+
+# Tables copied into a newly provisioned workspace, parents first so the
+# foreign keys below always resolve. Preference is handled separately because
+# its primary key is `workspace_id`.
+_CLONE_PLAN: list[tuple[type, str]] = [
+    (Client, "workspace_id"),
+    (Project, "workspace_id"),
+    (Milestone, "project_id"),
+    (Agreement, "project_id"),
+    (Invoice, "workspace_id"),
+    (Payment, "workspace_id"),
+    (Lead, "workspace_id"),
+    (ExternalMessage, "workspace_id"),
+    (ScopeFinding, "workspace_id"),
+    (Report, "workspace_id"),
+    (Conversation, "workspace_id"),
+    (ConversationMessage, "conversation_id"),
+    (ActionApproval, "workspace_id"),
+    (ActionEvent, "workspace_id"),
+    (ActivityEvent, "workspace_id"),
+    (IntegrationConnection, "workspace_id"),
+]
+
+
+def _remap_json(value: Any, mapping: dict[str, str]) -> Any:
+    """Rewrite ids inside stored JSON (sources, tools, action) to the clone's ids."""
+    if isinstance(value, str):
+        return mapping.get(value, value)
+    if isinstance(value, list):
+        return [_remap_json(item, mapping) for item in value]
+    if isinstance(value, dict):
+        return {key: _remap_json(item, mapping) for key, item in value.items()}
+    return value
+
+
+def seed_workspace_from_demo(
+    session: Session, *, workspace_id: str, user_id: str, user_name: str
+) -> bool:
+    """Copy the seeded demo dataset into a fresh workspace of the sample account.
+
+    A brand-new Clerk account owns an empty workspace, which makes the signed-in
+    product look broken (every screen is blank). Cloning the demo records keeps
+    the first session useful while preserving per-account isolation: ids are
+    namespaced per workspace and the demo workspace itself is never shared.
+    """
+    if workspace_id == WORKSPACE_ID:
+        return False
+    # Only untouched workspaces are filled. Any record the user already owns
+    # (including one they created and later deleted back to zero) means the
+    # sample dataset has had its chance, so the clone never re-appears.
+    for model in (Project, Invoice, Conversation, ActivityEvent):
+        if session.exec(select(model).where(model.workspace_id == workspace_id)).first():
+            return False
+    if not session.exec(select(Workspace).where(Workspace.id == WORKSPACE_ID)).first():
+        seed_if_empty(session)
+
+    prefix = f"{workspace_id}:"
+    # Globally unique columns (invoice numbers, provider message ids) cannot be
+    # copied verbatim, so they carry a short digest of the workspace instead of
+    # a slice of its id, which two accounts could share.
+    suffix = hashlib.sha1(workspace_id.encode("utf-8")).hexdigest()[:6]
+    id_map: dict[str, str] = {USER_ID: user_id, CLERK_ID: user_id, WORKSPACE_ID: workspace_id}
+    batches: list[tuple[type, list[Any]]] = []
+
+    demo_project_ids = [
+        pid
+        for pid in session.exec(
+            select(Project.id).where(Project.workspace_id == WORKSPACE_ID)
+        ).all()
+    ]
+    demo_conversation_ids = [
+        cid
+        for cid in session.exec(
+            select(Conversation.id).where(Conversation.workspace_id == WORKSPACE_ID)
+        ).all()
+    ]
+
+    def _rows_for(model: type) -> list[Any]:
+        columns = {column.name for column in model.__table__.columns}
+        statement = select(model)
+        if "workspace_id" in columns:
+            statement = statement.where(model.workspace_id == WORKSPACE_ID)
+        elif model is ConversationMessage:
+            statement = statement.where(
+                ConversationMessage.conversation_id.in_(demo_conversation_ids)
+            )
+        elif model in (Milestone, Agreement):
+            statement = statement.where(model.project_id.in_(demo_project_ids))
+        else:
+            return []
+        return list(session.exec(statement).all())
+
+    # Pass 1: collect the source rows and reserve a namespaced id for each one.
+    for model, _ in _CLONE_PLAN:
+        rows = _rows_for(model)
+        batches.append((model, rows))
+        for row in rows:
+            old_id = getattr(row, "id", None)
+            if isinstance(old_id, str) and old_id not in id_map:
+                id_map[old_id] = f"{prefix}{old_id}"
+
+    # Pass 2: insert remapped copies.
+    for model, rows in batches:
+        columns = [column.name for column in model.__table__.columns]
+        for row in rows:
+            data: dict[str, Any] = {}
+            for name in columns:
+                value = getattr(row, name, None)
+                if name == "id":
+                    data[name] = id_map[getattr(row, "id", "")]
+                elif name == "workspace_id":
+                    data[name] = workspace_id
+                elif isinstance(value, str):
+                    data[name] = id_map.get(value, value)
+                elif isinstance(value, (dict, list)):
+                    data[name] = _remap_json(value, id_map)
+                else:
+                    data[name] = value
+            if model is Invoice:
+                data["number"] = f"{data['number']}-{suffix}"
+            if model is ExternalMessage:
+                data["source_message_id"] = (
+                    f"{data['source_message_id']}:{suffix}"
+                )
+            if model is ActionApproval:
+                data["canonical_hash"] = payload_hash(
+                    canonical_payload(
+                        kind=data["kind"],
+                        recipient=data["recipient"],
+                        subject=data["subject"],
+                        body=data["body"],
+                        amount_cents=data["amount_cents"],
+                        currency=data["currency"],
+                        provider=data["provider"],
+                    )
+                )
+                data["idempotency_key"] = idempotency_key(
+                    data["id"], data["canonical_hash"]
+                )
+            session.add(model(**data))
+        session.flush()
+
+    demo_pref = session.get(Preference, WORKSPACE_ID)
+    if demo_pref is not None:
+        values = dict(demo_pref.values)
+        values["timezone"] = values.get("timezone", "Asia/Kolkata")
+        session.add(Preference(workspace_id=workspace_id, values=values))
+
+    session.add(
+        ActivityEvent(
+            id=f"{prefix}act-0",
+            workspace_id=workspace_id,
+            type="system",
+            actor="Visun",
+            title="Sample workspace prepared",
+            detail=(
+                f"Sample records were copied into {user_name}'s workspace so the "
+                "first session has projects, invoices, and conversations to explore."
+            ),
+            at=parse_dt(DEMO_NOW),
+            status="info",
+            reference=None,
+            project_id=None,
+        )
+    )
+    session.commit()
+    return True
 
 
 def seed_if_empty(session: Session) -> bool:
@@ -50,8 +231,8 @@ def seed_if_empty(session: Session) -> bool:
         User(
             id=USER_ID,
             clerk_user_id=CLERK_ID,
-            name="Ayush Paroha",
-            email="ayush@parohastudio.com",
+            name=DEMO_USER_NAME,
+            email=DEMO_USER_EMAIL,
             timezone="Asia/Kolkata",
         )
     )
@@ -255,9 +436,9 @@ def seed_if_empty(session: Session) -> bool:
     messages = [
         ("msg-1", "p-northwind", "Telegram", "Rahul Mehta", "client", "Can you also add login and a payment page? We need it before launch — the investor demo is on the 14th.", "2026-11-02T09:14:00+05:30", "Northwind project group · bot opted in by Rahul"),
         ("msg-2", "p-northwind", "Telegram", "Rahul Mehta", "client", "The footer feels long. Can we cut it to two lines and keep the newsletter?", "2026-10-31T11:20:00+05:30", "Northwind project group · bot opted in by Rahul"),
-        ("msg-3", "p-northwind", "Telegram", "Ayush Paroha", "freelancer", "Design system is locked. Marketing build starts Monday — staging link will land Wednesday.", "2026-10-31T11:04:00+05:30", "Northwind project group · bot opted in by Rahul"),
+        ("msg-3", "p-northwind", "Telegram", DEMO_USER_NAME, "freelancer", "Design system is locked. Marketing build starts Monday — staging link will land Wednesday.", "2026-10-31T11:04:00+05:30", "Northwind project group · bot opted in by Rahul"),
         ("msg-4", "p-fjord", "Telegram", "Maya Chen", "client", "Can we swap the homepage hero to a short video loop instead of the still? Something moody, 6–8 seconds.", "2026-11-01T15:42:00+05:30", "Fjord winter drop group · opted in"),
-        ("msg-5", "p-fjord", "Telegram", "Ayush Paroha", "freelancer", "Yes — send the loop as an MP4 and I’ll wire it in. Keep it under 8 seconds so the mobile load stays quick.", "2026-11-01T16:02:00+05:30", "Fjord winter drop group · opted in"),
+        ("msg-5", "p-fjord", "Telegram", DEMO_USER_NAME, "freelancer", "Yes — send the loop as an MP4 and I’ll wire it in. Keep it under 8 seconds so the mobile load stays quick.", "2026-11-01T16:02:00+05:30", "Fjord winter drop group · opted in"),
         ("msg-6", "p-okafor", "Email", "Daniel Okafor", "client", "The intake flow is working well. Billing is the last piece before we can roll it out to the team.", "2026-11-02T16:40:00+05:30", "Imported email thread · 2 messages"),
         ("msg-7", "p-okafor", "Telegram", "Daniel Okafor", "client", "Also connect the intake workflow to QuickBooks so accepted matters create invoices automatically.", "2026-11-02T17:08:00+05:30", "Okafor build group · opted in"),
         ("msg-8", "p-saffron", "Uploaded chat", "Priya Nair", "client", "The booking page should match the portfolio type scale. I uploaded a screenshot of what I mean.", "2026-11-01T10:12:00+05:30", "Uploaded WhatsApp export · consent checked"),
@@ -299,7 +480,7 @@ def seed_if_empty(session: Session) -> bool:
         title="Overdue invoice reminder",
         recipient="daniel@okaforlegal.com",
         subject="Quick nudge — INV-1045 ($800)",
-        body="Hi Daniel,\n\nA small nudge on INV-1045 for the intake workflow milestone — $800, which was due on 1 November.\n\nThe PayPal Sandbox invoice is here: paypal.com/invoice/INV2-K7Y3-9P2M-4Q6A. Happy to resend it if helpful.\n\nThanks,\nAyush",
+        body=f"Hi Daniel,\n\nA small nudge on INV-1045 for the intake workflow milestone — $800, which was due on 1 November.\n\nThe PayPal Sandbox invoice is here: paypal.com/invoice/INV2-K7Y3-9P2M-4Q6A. Happy to resend it if helpful.\n\nThanks,\n{DEMO_USER_NAME}",
         amount_cents=cents(800),
         currency="USD",
         provider="Gmail",
@@ -485,5 +666,24 @@ def seed_if_empty(session: Session) -> bool:
         )
     )
 
+    session.commit()
+    return True
+
+
+def ensure_demo_identity(session: Session) -> bool:
+    """Keep the credential-free demo account labelled as a sandbox identity.
+
+    Existing databases were seeded with a real-looking name and address. This
+    idempotent update only touches the fixed demo user row, never a Clerk
+    account, so signed-in workspaces are unaffected.
+    """
+    user = session.get(User, USER_ID)
+    if user is None:
+        return False
+    if user.name == DEMO_USER_NAME and user.email == DEMO_USER_EMAIL:
+        return False
+    user.name = DEMO_USER_NAME
+    user.email = DEMO_USER_EMAIL
+    session.add(user)
     session.commit()
     return True

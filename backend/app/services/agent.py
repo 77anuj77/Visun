@@ -392,19 +392,116 @@ class GeminiAgent:
         return grounded
 
 
-def configured_agent() -> AgentBackend:
+class AdkAgent:
+    """Google ADK tool-calling agent, with the deterministic engine as fallback.
+
+    The model picks and orders the workspace tools. Every tool result is read
+    back from the database. If ADK raises (missing package, bad key, quota,
+    timeout) the grounded deterministic answer is returned and the failure is
+    logged, so the UI never shows an invented result.
+    """
+
+    name = "adk"
+
+    def __init__(self, fallback: DeterministicAgent) -> None:
+        self.fallback = fallback
+
+    def respond(
+        self,
+        *,
+        session: Session,
+        principal: Principal,
+        message: str,
+        project_id: str | None,
+    ) -> AgentReply:
+        from .adk_agent import AdkUnavailable, run_adk
+        from .ai_config import resolve_ai_config
+
+        config = resolve_ai_config(session, principal.workspace_id)
+        if config is None:
+            return self.fallback.respond(
+                session=session, principal=principal, message=message, project_id=project_id
+            )
+        try:
+            text, trace = run_adk(
+                session=session, principal=principal, message=message, config=config
+            )
+        except AdkUnavailable as exc:
+            log.warning("adk_fallback", reason=str(exc)[:200])
+            grounded = self.fallback.respond(
+                session=session, principal=principal, message=message, project_id=project_id
+            )
+            grounded.text = (
+                f"_The configured Gemini model could not be used ({str(exc)[:160]}), so this "
+                "answer comes from the deterministic engine._\n\n" + grounded.text
+            )
+            return grounded
+
+        tools = [
+            ToolResult(
+                name=entry["name"],
+                args=json.dumps(entry.get("args", {}), default=str)[:400],
+                status=entry["status"],
+                result=entry["result"],
+                data=entry.get("payload") or {},
+            )
+            for entry in trace
+        ]
+        action_id = next(
+            (
+                str(entry["payload"]["actionId"])
+                for entry in trace
+                if isinstance(entry.get("payload"), dict) and entry["payload"].get("actionId")
+            ),
+            None,
+        )
+        return AgentReply(
+            text=text,
+            sources=[],
+            tools=tools,
+            backend=self.name,
+            action_id=action_id,
+            facts={tool.name: tool.data for tool in tools},
+        )
+
+
+def configured_agent(session: Session | None = None, workspace_id: str | None = None) -> AgentBackend:
     deterministic = DeterministicAgent()
     if settings.agent_backend == "deterministic":
         return deterministic
+    from .ai_config import resolve_ai_config
+
+    config = (
+        resolve_ai_config(session, workspace_id)
+        if session is not None and workspace_id is not None
+        else None
+    )
+    if config is not None:
+        return AdkAgent(deterministic)
     if settings.gemini_configured:
         return GeminiAgent(deterministic)
     return deterministic
 
 
-def agent_status() -> dict[str, Any]:
+def agent_status(
+    session: Session | None = None, workspace_id: str | None = None
+) -> dict[str, Any]:
+    from .ai_config import ai_status
+
+    ai = ai_status(session, workspace_id) if session is not None and workspace_id else {
+        "configured": settings.gemini_configured,
+        "textModel": settings.gemini_text_model or None,
+        "liveModel": settings.gemini_live_model or None,
+        "source": "environment" if settings.gemini_configured else None,
+        "voiceCapable": bool(settings.gemini_live_model and settings.google_api_key),
+    }
+    backend = "deterministic"
+    if settings.agent_backend != "deterministic" and ai.get("configured"):
+        backend = "adk"
     return {
-        "backend": "gemini" if settings.gemini_configured and settings.agent_backend != "deterministic" else "deterministic",
-        "geminiConfigured": settings.gemini_configured,
+        "backend": backend,
+        "geminiConfigured": bool(ai.get("configured")),
         "agentBackendSetting": settings.agent_backend,
         "groundedTools": True,
+        "ai": ai,
     }
