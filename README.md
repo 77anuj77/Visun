@@ -139,3 +139,31 @@ frontend/
   plain-text copy.
 - The Next.js rewrite does not proxy WebSocket upgrades; the voice UI uses the
   browser speech stack and a transcript fallback, not a tunnelled Live socket.
+
+## Assets
+
+The `assets/` folder contains UI screenshot references captured from the running
+Visun frontend during the product demo. These are PNG images at 1920×1080 showing
+various screens (Today, Copilot, Projects, Inbox, Payments, Calendar, Leads,
+Reports, Activity, Integrations, Preferences) from the seeded Paroha Studio demo
+workspace. They are used as visual references for the demo video composition and
+should not be committed to the repository unless the demo assets are published.
+
+| File | Screenshot |
+| --- | --- |
+| `activity.png` | Activity audit trail |
+| `calendar.png` | Calendar month/week/agenda views |
+| `copilot-approval.png` | Copilot approval card and tool trace |
+| `inbox.png` | Scope Inbox evidence and accept flow |
+| `integrations.png` | Provider cards (Gemini, PayPal, Gmail, Telegram, Google Calendar) |
+| `leads.png` | Leads pipeline and Nina Patel detail |
+| `payments.png` | Invoice ledger with overdue INV-1045 and Draft reminder |
+| `preferences.png` | Voice, language, style, and motion settings |
+| `projects.png` | Project cards and Northwind detail |
+| `reports.png` | Report preview with source-backed facts |
+| `today.png` | Today dashboard overview and metrics |
+
+These assets are generated from the capture script and are intended as reference
+material for the product demo video. They are typically not included in the
+repository git history unless the demo assets are being published alongside the
+codebase.
