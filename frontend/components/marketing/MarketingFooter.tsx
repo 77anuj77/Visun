@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ArrowUpRight, Code2 } from "lucide-react";
 import { Logo } from "@/components/brand/Logo";
-import { DemoLink, SignUpCta } from "@/components/auth/AuthActions";
+import { ContactCta, DemoCta } from "@/components/marketing/InstallCtas";
 
 const columns = [
   {
@@ -9,23 +9,27 @@ const columns = [
     links: [
       { label: "Features", href: "/#features" },
       { label: "Pricing", href: "/pricing" },
-      { label: "Contact", href: "/contact" },
       { label: "Open the demo", href: "/app?demo=1" },
     ],
   },
   {
-    title: "Resources",
+    title: "Installation",
     links: [
-      { label: "Setup guide", href: "https://github.com/77anuj77/Visun/blob/main/SETUP.md" },
-      { label: "Source code", href: "https://github.com/77anuj77/Visun" },
-      { label: "Report an issue", href: "https://github.com/77anuj77/Visun/issues" },
+      { label: "Personal setup", href: "/pricing#personal" },
+      { label: "Studio setup", href: "/pricing#studio" },
+      { label: "Request a quote", href: "/contact?inquiry=studio" },
+      {
+        label: "Installation guide",
+        href: "https://github.com/77anuj77/Visun/blob/main/docs/installation.md",
+      },
     ],
   },
   {
-    title: "Account",
+    title: "Support",
     links: [
-      { label: "Sign in", href: "/sign-in" },
-      { label: "Create an account", href: "/sign-up" },
+      { label: "Contact", href: "/contact" },
+      { label: "Technical support", href: "/contact?inquiry=technical" },
+      { label: "Source code", href: "https://github.com/77anuj77/Visun" },
     ],
   },
 ] as const;
@@ -39,16 +43,16 @@ export function MarketingFooter() {
             <Logo href="/" />
             <p className="mt-4 text-[13px] leading-relaxed text-[#5f5a53]">
               A voice-first operations workspace for freelancers and small
-              studios. Ask in plain language; act only with approval.
+              studios, installed privately on your own computer or server.
             </p>
             <div className="mt-6 flex flex-wrap items-center gap-2">
-              <DemoLink className="group inline-flex h-10 items-center gap-1.5 rounded-full bg-ink px-4 text-[12.5px] font-medium text-canvas transition hover:bg-[#2b2b2b] active:translate-y-px">
-                Open the demo
+              <DemoCta className="group inline-flex h-10 items-center gap-1.5 rounded-full bg-ink px-4 text-[12.5px] font-medium text-canvas transition hover:bg-[#2b2b2b] active:translate-y-px">
+                Try free demo
                 <ArrowUpRight size={13} aria-hidden="true" />
-              </DemoLink>
-              <SignUpCta className="inline-flex h-10 items-center rounded-full border border-[#d7d1c6] bg-white px-4 text-[12.5px] font-medium text-ink transition hover:border-[#bfb8ab] active:translate-y-px">
-                Get started
-              </SignUpCta>
+              </DemoCta>
+              <ContactCta className="inline-flex h-10 items-center rounded-full border border-[#d7d1c6] bg-white px-4 text-[12.5px] font-medium text-ink transition hover:border-[#bfb8ab] active:translate-y-px">
+                Contact for setup
+              </ContactCta>
             </div>
           </div>
 
@@ -92,7 +96,7 @@ export function MarketingFooter() {
 
         <div className="flex flex-col justify-between gap-3 border-t border-[#ded9cf] py-5 sm:flex-row sm:items-center">
           <p className="font-mono text-[9.5px] uppercase tracking-[0.14em] text-[#8f8a80]">
-            © 2026 Visun · demo build · PayPal Sandbox only
+            © 2026 Visun · self-hosted · assisted installation
           </p>
           <a
             href="https://github.com/77anuj77/Visun"

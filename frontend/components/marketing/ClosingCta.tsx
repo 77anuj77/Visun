@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { ArrowRight, ArrowUpRight } from "lucide-react";
-import { DemoLink, SignUpCta } from "@/components/auth/AuthActions";
+import { ContactCta, DemoCta } from "@/components/marketing/InstallCtas";
 
 /**
  * Shared closing band for the three marketing pages. Copy stays factual:
@@ -11,7 +11,7 @@ export function ClosingCta({
   title,
   copy,
   secondaryHref = "/pricing",
-  secondaryLabel = "Compare plans",
+  secondaryLabel = "See installation options",
 }: {
   title: ReactNode;
   copy: string;
@@ -44,22 +44,22 @@ export function ClosingCta({
           </div>
 
           <div className="flex flex-col gap-2.5 sm:flex-row lg:flex-col lg:items-stretch">
-            <SignUpCta className="group inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-black bg-ink px-5 text-[13.5px] font-semibold text-canvas transition hover:bg-[#2a2a2a] active:translate-y-px">
-              Get started
+            <DemoCta className="group inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-black bg-ink px-5 text-[13.5px] font-semibold text-canvas transition hover:bg-[#2a2a2a] active:translate-y-px">
+              Try free demo
               <ArrowRight
                 size={15}
                 aria-hidden="true"
                 className="transition-transform group-hover:translate-x-0.5"
               />
-            </SignUpCta>
-            <DemoLink className="group inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-[#b94300]/40 bg-white/80 px-5 text-[13.5px] font-medium text-ink transition hover:bg-white active:translate-y-px">
-              Open the demo
+            </DemoCta>
+            <ContactCta className="group inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-[#b94300]/40 bg-white/80 px-5 text-[13.5px] font-medium text-ink transition hover:bg-white active:translate-y-px">
+              Get Visun on your computer
               <ArrowUpRight
                 size={15}
                 aria-hidden="true"
                 className="transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5"
               />
-            </DemoLink>
+            </ContactCta>
             <Link
               href={secondaryHref}
               className="inline-flex h-9 items-center justify-center gap-1 text-[12px] font-medium text-[#6a2708] underline decoration-[#b94300]/40 underline-offset-4 transition hover:text-ink"

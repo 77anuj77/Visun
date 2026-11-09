@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { ArrowRight, Menu, X } from "lucide-react";
 import { Logo } from "@/components/brand/Logo";
-import { SignInCta, SignUpCta } from "@/components/auth/AuthActions";
+import { ContactCta, DemoCta } from "@/components/marketing/InstallCtas";
 import { cn } from "@/lib/utils";
 
 const links = [
@@ -84,17 +84,17 @@ export function MarketingNav() {
         </nav>
 
         <div className="ml-auto hidden items-center gap-1.5 sm:flex">
-          <SignInCta className="rounded-full px-3.5 py-2 text-[13px] font-medium text-[#6b665f] transition hover:bg-white/70 hover:text-ink">
-            Sign in
-          </SignInCta>
-          <SignUpCta className="group inline-flex h-10 items-center gap-1.5 rounded-full border border-[#e24f00] bg-orange px-4 text-[13px] font-semibold text-ink shadow-[0_10px_24px_-10px_rgba(255,90,0,0.8)] transition hover:bg-[#ff6d1f] active:translate-y-px">
-            Get started
+          <ContactCta className="rounded-full px-3.5 py-2 text-[13px] font-medium text-[#6b665f] transition hover:bg-white/70 hover:text-ink">
+            Contact for setup
+          </ContactCta>
+          <DemoCta className="group inline-flex h-10 items-center gap-1.5 rounded-full border border-[#e24f00] bg-orange px-4 text-[13px] font-semibold text-ink shadow-[0_10px_24px_-10px_rgba(255,90,0,0.8)] transition hover:bg-[#ff6d1f] active:translate-y-px">
+            Try free demo
             <ArrowRight
               size={14}
               aria-hidden="true"
               className="transition-transform group-hover:translate-x-0.5"
             />
-          </SignUpCta>
+          </DemoCta>
         </div>
 
         <button
@@ -138,24 +138,25 @@ export function MarketingNav() {
               ))}
 
               <div className="mt-5 flex flex-col gap-2 sm:hidden">
-                <SignUpCta
+                <DemoCta
                   onNavigate={() => setOpen(false)}
                   className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-[#e24f00] bg-orange text-[14px] font-semibold text-ink active:translate-y-px"
                 >
-                  Get started
+                  Try free demo
                   <ArrowRight size={15} aria-hidden="true" />
-                </SignUpCta>
-                <SignInCta
+                </DemoCta>
+                <ContactCta
                   onNavigate={() => setOpen(false)}
                   className="inline-flex h-12 items-center justify-center rounded-2xl border border-[#dcd6cc] bg-white text-[14px] font-medium text-ink active:translate-y-px"
                 >
-                  Sign in
-                </SignInCta>
+                  Contact for setup
+                </ContactCta>
                 <Link
-                  href="/app?demo=1"
+                  href="/pricing"
+                  onClick={() => setOpen(false)}
                   className="inline-flex h-11 items-center justify-center rounded-2xl text-[13px] font-medium text-[#6b665f] underline decoration-[#c8c1b5] underline-offset-4 hover:text-ink"
                 >
-                  Explore the seeded demo
+                  Get Visun on your computer
                 </Link>
               </div>
             </nav>
