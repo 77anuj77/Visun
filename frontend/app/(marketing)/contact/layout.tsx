@@ -4,11 +4,11 @@ import type { ReactNode } from "react";
 export const metadata: Metadata = {
   title: "Contact",
   description:
-    "Ask about plan scope, report a problem, or describe the workflow you want to run. Contact delivery is reported honestly in this build.",
+    "Request a private Visun installation for your computer or server, ask about Studio setup, or get technical support. No account required.",
   openGraph: {
     title: "Contact · Visun",
     description:
-      "Tell us what is actually in the way. This build has no invented inbox — if delivery is not configured, the form says so.",
+      "Tell us your operating system, preferred host, and integrations. Installation pricing is quoted directly, with no subscription checkout.",
     type: "website",
   },
 };

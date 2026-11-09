@@ -4,11 +4,11 @@ import type { ReactNode } from "react";
 export const metadata: Metadata = {
   title: "Pricing",
   description:
-    "Compare Visun's Free, Pro, and Team scopes. Billing is not configured in this build, so paid plans route to a conversation rather than a checkout.",
+    "Try Visun free in the $0 demo, then request a privately installed Docker setup. Personal and Studio installations are quoted directly with no subscription billing.",
   openGraph: {
     title: "Pricing · Visun",
     description:
-      "Three proposed working scopes, one approval model. Free is $0; Pro and Team are open for a scope conversation.",
+      "Free interactive demo. Private assisted installation, quoted directly. Your workspace, your machine.",
     type: "website",
   },
 };

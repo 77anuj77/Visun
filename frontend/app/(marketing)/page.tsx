@@ -22,8 +22,8 @@ import {
   Users,
   Wallet,
 } from "lucide-react";
-import { SignInCta, SignUpCta } from "@/components/auth/AuthActions";
 import { LogoMark } from "@/components/brand/Logo";
+import { ContactCta, DemoCta } from "@/components/marketing/InstallCtas";
 import { AgentPreview } from "@/components/marketing/AgentPreview";
 import { ClosingCta } from "@/components/marketing/ClosingCta";
 import { FlipWord, Kicker, Reveal } from "@/components/marketing/Motion";
@@ -72,18 +72,18 @@ function Hero() {
           </p>
 
           <div className="mt-7 flex flex-wrap items-center gap-2.5">
-            <SignUpCta className="group inline-flex h-12 items-center gap-2 rounded-2xl border border-[#e24f00] bg-orange px-5 text-[13.5px] font-semibold text-ink shadow-[0_16px_34px_-14px_rgba(255,90,0,0.85)] transition hover:bg-[#ff6d1f] active:translate-y-px">
-              Get started
+            <DemoCta className="group inline-flex h-12 items-center gap-2 rounded-2xl border border-[#e24f00] bg-orange px-5 text-[13.5px] font-semibold text-ink shadow-[0_16px_34px_-14px_rgba(255,90,0,0.85)] transition hover:bg-[#ff6d1f] active:translate-y-px">
+              Try free demo
               <ArrowRight
                 size={15}
                 aria-hidden="true"
                 className="transition-transform group-hover:translate-x-0.5"
               />
-            </SignUpCta>
-            <SignInCta className="inline-flex h-12 items-center rounded-2xl border border-[#d9d4ca] bg-white/80 px-5 text-[13.5px] font-medium text-ink transition hover:border-[#c8c1b4] hover:bg-white active:translate-y-px">
-              Sign in
-            </SignInCta>
-            <a
+            </DemoCta>
+            <ContactCta className="inline-flex h-12 items-center rounded-2xl border border-[#d9d4ca] bg-white/80 px-5 text-[13.5px] font-medium text-ink transition hover:border-[#c8c1b4] hover:bg-white active:translate-y-px">
+              Get Visun on your computer
+            </ContactCta>
+            <Link
               href="#features"
               className="group inline-flex h-12 items-center gap-2 rounded-2xl px-3 text-[12.5px] font-medium text-[#5f5a53] transition hover:text-ink"
             >
@@ -93,14 +93,14 @@ function Hero() {
                 aria-hidden="true"
                 className="rotate-90 transition-transform group-hover:translate-y-0.5"
               />
-            </a>
+            </Link>
           </div>
 
           <ul className="mt-7 flex flex-wrap items-center gap-x-5 gap-y-2 text-[10.5px] text-[#7a756c]">
             {[
-              "No card required",
-              "Seeded demo available",
-              "PayPal Sandbox only",
+              "No account required",
+              "$0 interactive demo",
+              "Private installation available",
             ].map((item) => (
               <li key={item} className="flex items-center gap-1.5">
                 <Check size={11} className="text-success" aria-hidden="true" />
@@ -497,7 +497,7 @@ export default function LandingPage() {
             <span className="block font-serif italic">a second pair of hands.</span>
           </>
         }
-        copy="Open the seeded workspace, ask one real question, and approve the exact next step. No card, no live charge, no mystery automation."
+        copy="Open the $0 demo, ask one real question, and approve the exact next step. When you want your own private workspace, request an assisted Docker installation."
       />
     </>
   );

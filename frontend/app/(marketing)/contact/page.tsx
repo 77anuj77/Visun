@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import {
   useEffect,
   useRef,
@@ -9,16 +8,14 @@ import {
   type ReactNode,
 } from "react";
 import {
-  AlertCircle,
   ArrowRight,
-  ArrowUpRight,
-  BookOpen,
-  Bug,
   CheckCircle2,
   ChevronDown,
+  Laptop,
   Loader2,
   MessageSquareText,
-  Send,
+  Server,
+  ShieldCheck,
   Sparkles,
 } from "lucide-react";
 import { ClosingCta } from "@/components/marketing/ClosingCta";
@@ -26,28 +23,125 @@ import { Kicker, Reveal } from "@/components/marketing/Motion";
 import { cn } from "@/lib/utils";
 
 const inquiryOptions = [
-  { value: "general", label: "General inquiry" },
-  { value: "sales", label: "Sales and plan scope" },
-  { value: "technical", label: "Technical support" },
-  { value: "feedback", label: "Product feedback" },
+  { value: "personal", label: "Personal Setup" },
+  { value: "studio", label: "Studio / Business Setup" },
+  { value: "general", label: "General Inquiry" },
+  { value: "technical", label: "Technical Support" },
+] as const;
+
+const installationOptions = [
+  { value: "computer", label: "Personal Computer" },
+  { value: "server", label: "Private Server / VPS" },
+  { value: "unsure", label: "Need Help Deciding" },
+] as const;
+
+const osOptions = [
+  { value: "windows", label: "Windows" },
+  { value: "macos", label: "macOS" },
+  { value: "linux", label: "Linux" },
+  { value: "unsure", label: "Not Sure" },
 ] as const;
 
 const fieldClass =
   "w-full rounded-xl border border-[#dcd6cc] bg-white/90 px-3.5 py-2.5 text-[12.5px] text-ink shadow-[inset_1px_1px_3px_rgba(35,31,24,0.05)] outline-none transition placeholder:text-[#a39d93] focus:border-[#b9b1a3] focus:ring-2 focus:ring-[#cfc8bc]/60";
 
-type FieldErrors = Partial<
-  Record<"fullName" | "email" | "inquiry" | "message" | "form", string>
->;
+type FieldName =
+  | "fullName"
+  | "email"
+  | "inquiry"
+  | "installation"
+  | "os"
+  | "message";
 
+type FieldErrors = Partial<Record<FieldName | "form", string>>;
 type Status = "idle" | "submitting" | "success" | "blocked" | "error";
+
+function Field({
+  label,
+  htmlFor,
+  error,
+  hint,
+  children,
+}: {
+  label: string;
+  htmlFor: string;
+  error?: string;
+  hint?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div>
+      <div className="mb-1.5 flex items-center justify-between gap-2">
+        <label htmlFor={htmlFor} className="text-[11px] font-medium text-ink">
+          {label}
+        </label>
+        {hint ? (
+          <span className="font-mono text-[8.5px] uppercase tracking-[0.1em] text-[#a39d93]">
+            {hint}
+          </span>
+        ) : null}
+      </div>
+      {children}
+      {error ? (
+        <p id={`${htmlFor}-error`} className="mt-1.5 text-[10.5px] text-[#a3443c]">
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function Select({
+  id,
+  value,
+  onChange,
+  options,
+  invalid,
+}: {
+  id: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: readonly { value: string; label: string }[];
+  invalid?: boolean;
+}) {
+  return (
+    <div className="relative">
+      <select
+        id={id}
+        name={id}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        aria-invalid={invalid}
+        aria-describedby={invalid ? `${id}-error` : undefined}
+        className={cn(
+          fieldClass,
+          "appearance-none pr-9",
+          invalid && "border-[#c56a63] ring-2 ring-[#c56a63]/25",
+        )}
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+      <ChevronDown
+        size={14}
+        aria-hidden="true"
+        className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[#8f8a80]"
+      />
+    </div>
+  );
+}
 
 export default function ContactPage() {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [company, setCompany] = useState("");
-  const [inquiry, setInquiry] = useState<string>("general");
+  const [inquiry, setInquiry] = useState<string>("personal");
+  const [installation, setInstallation] = useState<string>("computer");
+  const [os, setOs] = useState<string>("");
   const [message, setMessage] = useState("");
-  const [planNote, setPlanNote] = useState("");
   const [errors, setErrors] = useState<FieldErrors>({});
   const [status, setStatus] = useState<Status>("idle");
   const [serverMessage, setServerMessage] = useState("");
@@ -58,16 +152,12 @@ export default function ContactPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const requested = params.get("inquiry");
-    if (requested && inquiryOptions.some((option) => option.value === requested)) {
-      setInquiry(requested);
+    if (requested === "sales") {
+      setInquiry("personal");
+      return;
     }
-    const plan = params.get("plan");
-    if (plan === "pro" || plan === "team") {
-      setPlanNote(
-        plan === "pro"
-          ? "You came from the Pro plan card."
-          : "You came from the Team plan card.",
-      );
+    if (inquiryOptions.some((option) => option.value === requested)) {
+      setInquiry(requested as string);
     }
   }, []);
 
@@ -79,6 +169,12 @@ export default function ContactPage() {
     }
     if (!inquiryOptions.some((option) => option.value === inquiry)) {
       next.inquiry = "Choose an inquiry type.";
+    }
+    if (!installationOptions.some((option) => option.value === installation)) {
+      next.installation = "Choose a preferred installation type.";
+    }
+    if (!osOptions.some((option) => option.value === os)) {
+      next.os = "Choose an operating system.";
     }
     const trimmed = message.trim();
     if (trimmed.length < 10) next.message = "Add at least 10 characters.";
@@ -117,8 +213,9 @@ export default function ContactPage() {
           email: email.trim(),
           company: company.trim(),
           inquiry,
+          installation,
+          os,
           message: message.trim(),
-          plan: planNote ? new URLSearchParams(window.location.search).get("plan") : null,
           website: honeypot,
         }),
       });
@@ -147,7 +244,7 @@ export default function ContactPage() {
         setStatus("blocked");
         setServerMessage(
           payload?.error ??
-            "Contact delivery is not configured in this build. Nothing was sent.",
+            "Contact delivery is not configured in this installation. Nothing was sent.",
         );
         return;
       }
@@ -172,15 +269,19 @@ export default function ContactPage() {
     setStatus("idle");
     setServerMessage("");
     setErrors({});
+    setFullName("");
+    setEmail("");
+    setCompany("");
+    setInquiry("personal");
+    setInstallation("computer");
+    setOs("");
     setMessage("");
   };
 
-  const invalid = (field: keyof FieldErrors) =>
-    Boolean(errors[field]);
+  const invalid = (field: FieldName) => Boolean(errors[field]);
 
   return (
     <>
-      {/* Hero */}
       <section className="relative overflow-hidden pb-8 pt-10 sm:pt-14 lg:pb-12 lg:pt-20">
         <div
           aria-hidden="true"
@@ -192,24 +293,24 @@ export default function ContactPage() {
 
         <div className="relative mx-auto grid max-w-[1320px] gap-10 px-5 sm:px-6 lg:grid-cols-[1.15fr_0.85fr] lg:items-end">
           <div>
-            <Kicker>Contact</Kicker>
+            <Kicker>Installation requests</Kicker>
             <h1 className="mt-5 font-sans text-[clamp(2.8rem,6.8vw,5.7rem)] font-semibold leading-[0.93] tracking-[-0.045em]">
-              Tell us what’s
+              Get Visun onto
               <span className="mt-1 block font-serif font-normal italic tracking-[-0.03em] text-orange">
-                actually in the way.
+                your own machine.
               </span>
             </h1>
             <p className="mt-5 max-w-lg text-[14px] leading-relaxed text-[#5f5a53]">
-              Ask about a plan, report something broken, or describe the
-              workflow you want to run. This build has no invented inbox: if
-              delivery is not configured, the form will say so plainly.
+              Tell us where you want Visun installed, what you run today, and
+              which integrations matter. We reply with next steps and a direct
+              quote. No account is required to ask.
             </p>
             <div className="mt-6 flex flex-wrap gap-2">
               {[
-                "General inquiry",
-                "Sales",
-                "Technical support",
-                "Feedback",
+                "Personal Setup",
+                "Studio / Business",
+                "General Inquiry",
+                "Technical Support",
               ].map((label) => (
                 <span
                   key={label}
@@ -225,26 +326,26 @@ export default function ContactPage() {
             <div className="relative mx-auto max-w-[320px] rotate-[-2deg] rounded-[24px] border border-[#ded9cf] bg-white p-5 shadow-[0_28px_60px_-30px_rgba(35,31,24,0.4)]">
               <div className="flex items-center justify-between">
                 <span className="font-mono text-[8.5px] uppercase tracking-[0.14em] text-[#8f8a80]">
-                  Where messages go
+                  What happens next
                 </span>
-                <Send size={13} className="text-orange" aria-hidden="true" />
+                <Sparkles size={13} className="text-orange" aria-hidden="true" />
               </div>
               <ul className="mt-4 space-y-4">
                 {[
                   {
-                    title: "Technical support",
-                    body: "GitHub Issues is the reliable channel for bugs and setup problems.",
-                    icon: Bug,
+                    title: "We read the details",
+                    body: "Your OS, preferred host, and integrations reach the Visun owner directly.",
+                    icon: MessageSquareText,
                   },
                   {
-                    title: "Sales and scope",
-                    body: "This form, once a delivery endpoint is configured.",
+                    title: "A direct reply",
+                    body: "We answer the email you provide with scope questions or a quote.",
                     icon: Sparkles,
                   },
                   {
-                    title: "No fake addresses",
-                    body: "There is no public email or social link in this build.",
-                    icon: MessageSquareText,
+                    title: "Private installation",
+                    body: "After agreement, Visun is installed with your own keys and database.",
+                    icon: ShieldCheck,
                   },
                 ].map((row) => {
                   const Icon = row.icon;
@@ -268,54 +369,47 @@ export default function ContactPage() {
         </div>
       </section>
 
-      {/* Form + support */}
       <section className="mx-auto max-w-[1320px] px-5 pb-14 pt-4 sm:px-6 lg:pb-20">
         <div className="grid gap-4 lg:grid-cols-[1.18fr_0.82fr]">
           <div className="rounded-[28px] border border-[#ded9cf] bg-white/85 p-5 shadow-[0_28px_60px_-34px_rgba(35,31,24,0.4)] sm:p-7">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="font-mono text-[8.5px] uppercase tracking-[0.14em] text-[#8f8a80]">
-                  Message form
+                  Installation request
                 </p>
                 <h2 className="mt-2 font-serif text-[clamp(1.8rem,3vw,2.5rem)] leading-none tracking-[-0.02em]">
-                  Start a conversation.
+                  Tell us about the setup.
                 </h2>
               </div>
-              {planNote ? (
-                <span className="rounded-full border border-[#e6dfae] bg-yellow/60 px-2.5 py-1 font-mono text-[8px] uppercase tracking-[0.1em] text-[#6d5a13]">
-                  {planNote}
-                </span>
-              ) : null}
+              <span className="hidden rounded-full border border-[#e6dfae] bg-yellow/60 px-2.5 py-1 font-mono text-[8px] uppercase tracking-[0.1em] text-[#6d5a13] sm:inline-flex">
+                No auto-charge
+              </span>
             </div>
 
             {status === "success" ? (
               <div className="mt-5 rounded-2xl border border-[#b9dfcb] bg-[#eaf6ef] p-5">
                 <p className="flex items-center gap-2 text-[13px] font-semibold text-[#1c6142]">
                   <CheckCircle2 size={16} aria-hidden="true" />
-                  Message accepted
+                  Request accepted
                 </p>
                 <p className="mt-2 text-[12px] leading-relaxed text-[#3d6f55]">
-                  The configured contact endpoint accepted your message. That is
-                  the only confirmation this build can give — there is no shared
-                  inbox to check here.
+                  Your installation request was accepted for delivery. We’ll
+                  reply to the email address you provided. No account was
+                  created and no payment was taken.
                 </p>
                 <button
                   type="button"
                   onClick={reset}
                   className="mt-4 inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#9ccfb4] bg-white px-3.5 text-[11px] font-medium text-[#1c6142] transition hover:bg-[#f7fcf9] active:translate-y-px"
                 >
-                  Send another message
+                  Send another request
                   <ArrowRight size={12} aria-hidden="true" />
                 </button>
               </div>
             ) : (
               <form className="mt-5" onSubmit={onSubmit} noValidate>
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <Field
-                    label="Full name"
-                    htmlFor="fullName"
-                    error={errors.fullName}
-                  >
+                  <Field label="Full name" htmlFor="fullName" error={errors.fullName}>
                     <input
                       id="fullName"
                       name="fullName"
@@ -377,30 +471,43 @@ export default function ContactPage() {
                     htmlFor="inquiry"
                     error={errors.inquiry}
                   >
-                    <div className="relative">
-                      <select
-                        id="inquiry"
-                        name="inquiry"
-                        value={inquiry}
-                        onChange={(event) => setInquiry(event.target.value)}
-                        aria-invalid={invalid("inquiry")}
-                        aria-describedby={
-                          errors.inquiry ? "inquiry-error" : undefined
-                        }
-                        className={cn(fieldClass, "appearance-none pr-9")}
-                      >
-                        {inquiryOptions.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                      <ChevronDown
-                        size={14}
-                        aria-hidden="true"
-                        className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[#8f8a80]"
-                      />
-                    </div>
+                    <Select
+                      id="inquiry"
+                      value={inquiry}
+                      onChange={setInquiry}
+                      options={inquiryOptions}
+                      invalid={invalid("inquiry")}
+                    />
+                  </Field>
+                </div>
+
+                <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                  <Field
+                    label="Preferred installation"
+                    htmlFor="installation"
+                    error={errors.installation}
+                  >
+                    <Select
+                      id="installation"
+                      value={installation}
+                      onChange={setInstallation}
+                      options={installationOptions}
+                      invalid={invalid("installation")}
+                    />
+                  </Field>
+
+                  <Field
+                    label="Operating system"
+                    htmlFor="os"
+                    error={errors.os}
+                  >
+                    <Select
+                      id="os"
+                      value={os}
+                      onChange={setOs}
+                      options={osOptions}
+                      invalid={invalid("os")}
+                    />
                   </Field>
                 </div>
 
@@ -419,7 +526,7 @@ export default function ContactPage() {
                       onChange={(event) => setMessage(event.target.value)}
                       aria-invalid={invalid("message")}
                       aria-describedby={errors.message ? "message-error" : undefined}
-                      placeholder="What are you trying to run, fix, or understand?"
+                      placeholder="What do you want Visun to run, and which integrations need to work?"
                       className={cn(
                         fieldClass,
                         "resize-y",
@@ -430,164 +537,109 @@ export default function ContactPage() {
                 </div>
 
                 {/* Honeypot: hidden from people, tempting to bots. */}
-                <div className="sr-only" aria-hidden="true">
+                <div className="absolute -left-[9999px] top-auto h-0 w-0 overflow-hidden" aria-hidden="true">
                   <label htmlFor="website">Website</label>
-                  <input
-                    id="website"
-                    name="website"
-                    type="text"
-                    tabIndex={-1}
-                    autoComplete="off"
-                  />
+                  <input id="website" name="website" type="text" tabIndex={-1} autoComplete="off" />
                 </div>
 
-                {errors.form ? (
-                  <p role="alert" className="mt-3 text-[11px] text-[#b64038]">
-                    {errors.form}
+                {serverMessage ? (
+                  <div
+                    role="alert"
+                    className={cn(
+                      "mt-4 flex items-start gap-2 rounded-xl border px-3.5 py-3 text-[11px] leading-relaxed",
+                      status === "blocked" || status === "error"
+                        ? "border-[#e7c9c4] bg-[#fdf1ef] text-[#8b3e36]"
+                        : "border-[#e4dfd6] bg-[#faf9f6] text-[#6f6a62]",
+                    )}
+                  >
+                    <MessageSquareText size={13} className="mt-0.5 shrink-0" aria-hidden="true" />
+                    {serverMessage}
+                  </div>
+                ) : null}
+
+                <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+                  <p className="max-w-[280px] text-[9.5px] leading-relaxed text-[#8f8a80]">
+                    Submitted details are emailed to the Visun owner. They are
+                    not stored in a marketing database.
                   </p>
-                ) : null}
-
-                {status === "blocked" ? (
-                  <div
-                    role="alert"
-                    className="mt-4 flex gap-2.5 rounded-xl border border-[#e6dfae] bg-yellow/60 p-3.5"
-                  >
-                    <AlertCircle
-                      size={15}
-                      className="mt-0.5 shrink-0 text-[#7b671c]"
-                      aria-hidden="true"
-                    />
-                    <div>
-                      <p className="text-[11.5px] font-semibold text-[#6d5a13]">
-                        Nothing was sent
-                      </p>
-                      <p className="mt-1 text-[11px] leading-relaxed text-[#6d5a13]">
-                        {serverMessage} A delivery endpoint has not been
-                        configured for this build, so the form does not pretend
-                        otherwise.
-                      </p>
-                      <a
-                        href="https://github.com/77anuj77/Visun/issues"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="mt-2 inline-flex items-center gap-1 text-[11px] font-medium text-ink underline decoration-[#8a6d00]/40 underline-offset-4 hover:decoration-[#8a6d00]"
-                      >
-                        Use GitHub Issues instead
-                        <ArrowUpRight size={11} aria-hidden="true" />
-                      </a>
-                    </div>
-                  </div>
-                ) : null}
-
-                {status === "error" ? (
-                  <div
-                    role="alert"
-                    className="mt-4 flex gap-2.5 rounded-xl border border-[#e7c4c1] bg-[#fbeceb] p-3.5"
-                  >
-                    <AlertCircle
-                      size={15}
-                      className="mt-0.5 shrink-0 text-[#b64038]"
-                      aria-hidden="true"
-                    />
-                    <div>
-                      <p className="text-[11.5px] font-semibold text-[#8f302b]">
-                        Message not confirmed
-                      </p>
-                      <p className="mt-1 text-[11px] leading-relaxed text-[#8f302b]">
-                        {serverMessage}
-                      </p>
-                    </div>
-                  </div>
-                ) : null}
-
-                <div className="mt-5 flex flex-wrap items-center gap-3">
                   <button
                     type="submit"
                     disabled={status === "submitting"}
-                    className="group inline-flex h-11 items-center gap-2 rounded-xl border border-black bg-ink px-5 text-[12.5px] font-semibold text-canvas transition hover:bg-[#2a2a2a] active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
+                    className="inline-flex h-11 items-center gap-2 rounded-xl border border-[#e24f00] bg-orange px-5 text-[12.5px] font-semibold text-ink shadow-[0_14px_28px_-14px_rgba(255,90,0,0.8)] transition hover:bg-[#ff6d1f] active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {status === "submitting" ? (
                       <>
-                        <Loader2
-                          size={14}
-                          className="animate-spin"
-                          aria-hidden="true"
-                        />
-                        Sending…
+                        <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+                        Sending
                       </>
                     ) : (
                       <>
-                        Send message
-                        <Send
-                          size={13}
-                          aria-hidden="true"
-                          className="transition-transform group-hover:translate-x-0.5"
-                        />
+                        Send installation request
+                        <ArrowRight size={14} aria-hidden="true" />
                       </>
                     )}
                   </button>
-                  <p className="text-[10px] leading-relaxed text-[#8f8a80]">
-                    No marketing email. No invented inbox. Fields are validated
-                    here and again on the server.
-                  </p>
                 </div>
               </form>
             )}
           </div>
 
-          {/* Support channels */}
           <div className="flex flex-col gap-3">
-            <div className="rounded-[24px] border border-[#ded9cf] bg-[#f4f1ea] p-5">
+            <div className="rounded-[24px] border border-[#ded9cf] bg-white/80 p-5">
               <p className="font-mono text-[8.5px] uppercase tracking-[0.14em] text-[#8f8a80]">
-                Support channels
+                Supported hosts
               </p>
-              <ul className="mt-4 space-y-2.5">
-                <SupportLink
-                  href="https://github.com/77anuj77/Visun/issues"
-                  icon={Bug}
-                  title="Report a bug"
-                  detail="GitHub Issues · the reliable technical channel"
-                />
-                <SupportLink
-                  href="https://github.com/77anuj77/Visun/blob/main/SETUP.md"
-                  icon={BookOpen}
-                  title="Setup and configuration"
-                  detail="Clerk, FastAPI, and demo-mode notes"
-                />
-                <SupportLink
-                  href="/pricing"
-                  icon={Sparkles}
-                  title="Plan questions"
-                  detail="See the proposed scopes and pricing disclosure"
-                  internal
-                />
-                <SupportLink
-                  href="https://github.com/77anuj77/Visun"
-                  icon={MessageSquareText}
-                  title="Read the source"
-                  detail="The repository is public"
-                />
+              <ul className="mt-3 space-y-3">
+                {[
+                  {
+                    title: "Windows",
+                    body: "Docker Desktop with the WSL2 backend.",
+                    icon: Laptop,
+                  },
+                  {
+                    title: "macOS",
+                    body: "Docker Desktop or another compatible container runtime.",
+                    icon: Laptop,
+                  },
+                  {
+                    title: "Linux",
+                    body: "Docker Engine with the Compose plugin.",
+                    icon: Server,
+                  },
+                ].map((row) => {
+                  const Icon = row.icon;
+                  return (
+                    <li key={row.title} className="flex gap-3">
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[#e6e1d8] bg-[#faf9f6] text-[#6f6a62]">
+                        <Icon size={13} aria-hidden="true" />
+                      </span>
+                      <div>
+                        <p className="text-[11px] font-semibold">{row.title}</p>
+                        <p className="mt-0.5 text-[10px] leading-relaxed text-[#7a756c]">
+                          {row.body}
+                        </p>
+                      </div>
+                    </li>
+                  );
+                })}
               </ul>
+              <p className="mt-4 border-t border-[#ece7de] pt-3 text-[9.5px] leading-relaxed text-[#8f8a80]">
+                Compatibility is verified per installation. ARM64 and AMD64
+                images are intended, but untested platforms are stated as
+                untested rather than promised.
+              </p>
             </div>
 
-            <div className="rounded-[24px] border border-[#e6dfae] bg-yellow/55 p-5">
+            <div className="rounded-[24px] border border-[#e6dfae] bg-yellow/50 p-5">
               <p className="flex items-center gap-1.5 font-mono text-[8.5px] uppercase tracking-[0.14em] text-[#7b671c]">
-                <AlertCircle size={11} aria-hidden="true" />
-                How this actually works
+                <ShieldCheck size={12} aria-hidden="true" />
+                Before you send
               </p>
-              <ul className="mt-3 space-y-2 text-[10.5px] leading-relaxed text-[#6b581b]">
-                {[
-                  "Messages post to /api/contact with server-side validation.",
-                  "Without CONTACT_WEBHOOK_URL, the server returns 503 and the form says nothing was sent.",
-                  "A honeypot and a small rate limit guard against spam.",
-                  "There is no public support email or social account in this build.",
-                ].map((line) => (
-                  <li key={line} className="flex gap-2">
-                    <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-[#8a6d00]" />
-                    {line}
-                  </li>
-                ))}
-              </ul>
+              <p className="mt-2 text-[11px] leading-relaxed text-[#6b581b]">
+                Never include API keys, passwords, or private keys in this
+                form. Credentials are configured separately during your
+                installation.
+              </p>
             </div>
           </div>
         </div>
@@ -596,120 +648,14 @@ export default function ContactPage() {
       <ClosingCta
         title={
           <>
-            Prefer to see it first?
-            <span className="block font-serif italic">Open the demo.</span>
+            Not ready to install?
+            <span className="block font-serif italic">Try the demo first.</span>
           </>
         }
-        copy="The seeded workspace needs no card and no message. Ask a question, inspect the tool calls, and approve the exact next step yourself."
+        copy="The seeded workspace costs nothing and needs no account. Explore the agent and approval flow before requesting a private setup."
         secondaryHref="/pricing"
-        secondaryLabel="Compare plans"
+        secondaryLabel="Compare installation options"
       />
     </>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-/* Small field + link helpers                                                 */
-/* -------------------------------------------------------------------------- */
-
-function Field({
-  label,
-  htmlFor,
-  hint,
-  error,
-  children,
-}: {
-  label: string;
-  htmlFor: string;
-  hint?: string;
-  error?: string;
-  children: ReactNode;
-}) {
-  return (
-    <div>
-      <div className="mb-1.5 flex items-baseline justify-between gap-2">
-        <label
-          htmlFor={htmlFor}
-          className="text-[10.5px] font-medium uppercase tracking-[0.1em] text-[#6f6a62]"
-        >
-          {label}
-        </label>
-        {hint ? (
-          <span className="font-mono text-[8px] uppercase tracking-[0.1em] text-[#a39d93]">
-            {hint}
-          </span>
-        ) : null}
-      </div>
-      {children}
-      {error ? (
-        <p
-          id={`${htmlFor}-error`}
-          className="mt-1.5 flex items-center gap-1 text-[10px] text-[#b64038]"
-        >
-          <AlertCircle size={10} aria-hidden="true" />
-          {error}
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
-function SupportLink({
-  href,
-  icon: Icon,
-  title,
-  detail,
-  internal,
-}: {
-  href: string;
-  icon: typeof Bug;
-  title: string;
-  detail: string;
-  internal?: boolean;
-}) {
-  const className =
-    "group flex items-start gap-3 rounded-xl border border-[#e2ddd3] bg-white/75 p-3 transition hover:-translate-y-0.5 hover:bg-white hover:shadow-neu-sm";
-  const body = (
-    <>
-      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[#e6e1d8] bg-[#faf9f6] text-[#6f6a62] transition group-hover:text-orange">
-        <Icon size={13} aria-hidden="true" />
-      </span>
-      <span className="min-w-0">
-        <span className="flex items-center gap-1 text-[11.5px] font-semibold text-ink">
-          {title}
-          <ArrowUpRight
-            size={11}
-            aria-hidden="true"
-            className="text-[#a39d93] transition group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-orange"
-          />
-        </span>
-        <span className="mt-0.5 block text-[9.5px] leading-relaxed text-[#7a756c]">
-          {detail}
-        </span>
-      </span>
-    </>
-  );
-
-  if (internal) {
-    return (
-      <li>
-        <Link href={href} className={className}>
-          {body}
-        </Link>
-      </li>
-    );
-  }
-
-  return (
-    <li>
-      <a
-        href={href}
-        target="_blank"
-        rel="noreferrer"
-        className={className}
-      >
-        {body}
-      </a>
-    </li>
   );
 }
