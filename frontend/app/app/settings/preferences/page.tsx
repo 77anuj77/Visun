@@ -49,6 +49,49 @@ const retentionOptions: Array<{
   { value: "forever", label: "Until deleted", detail: "No automatic purge. You are responsible for retention." },
 ];
 
+const voiceOptions: Array<{
+  value: Preferences["voiceName"];
+  label: string;
+  detail: string;
+}> = [
+  { value: "Achird", label: "Achird", detail: "Warm, natural" },
+  { value: "Sulafat", label: "Sulafat", detail: "Bright, clear" },
+  { value: "Aoede", label: "Aoede", detail: "Expressive" },
+  { value: "Puck", label: "Puck", detail: "Playful" },
+];
+
+const languageOptions: Array<{
+  value: Preferences["voiceLanguage"];
+  label: string;
+  detail: string;
+}> = [
+  {
+    value: "auto",
+    label: "Auto",
+    detail: "Mirrors English, Hindi, or Hinglish",
+  },
+  {
+    value: "english",
+    label: "Indian English",
+    detail: "Always answers in English",
+  },
+  {
+    value: "hindi",
+    label: "Hindi",
+    detail: "Conversational Hindi, keeping English terms",
+  },
+];
+
+const styleOptions: Array<{
+  value: Preferences["voiceStyle"];
+  label: string;
+  detail: string;
+}> = [
+  { value: "natural", label: "Natural", detail: "Warm and relaxed" },
+  { value: "professional", label: "Professional", detail: "Crisp and composed" },
+  { value: "energetic", label: "Energetic", detail: "Upbeat and brisk" },
+];
+
 const shortcuts = [
   { keys: "⌘ K", label: "Open command palette" },
   { keys: "/", label: "Search from anywhere" },
@@ -168,15 +211,15 @@ export default function PreferencesPage() {
           <div className="flex flex-wrap items-center gap-2">
             <p className="eyebrow">Settings</p>
             <Badge tone="yellow" className="!py-0.5 !text-[9.5px]">
-              Saved locally
+              Saved to workspace
             </Badge>
           </div>
           <h2 className="mt-1.5 text-[clamp(1.8rem,2.8vw,2.3rem)] font-semibold leading-tight tracking-[-0.035em]">
             Preferences
           </h2>
           <p className="mt-1 max-w-2xl text-[13px] leading-relaxed text-muted">
-            Control what Visun speaks, stores, and animates. Changes apply to this
-            browser only and save as you toggle them.
+            Control what Visun speaks, stores, and animates. Changes save to your
+            workspace as you update them.
           </p>
         </div>
         <div className="flex items-center gap-2 text-[10px] text-muted">
@@ -185,7 +228,7 @@ export default function PreferencesPage() {
               <Check size={12} className="text-success" />
               {lastSaved
                 ? `Saved ${relativeTime(lastSaved)}`
-                : "Preferences loaded from this browser"}
+                : "Preferences loaded from your workspace"}
             </>
           ) : (
             "Loading preferences…"
@@ -203,7 +246,7 @@ export default function PreferencesPage() {
               <div>
                 <p className="text-[12.5px] font-semibold">Voice & assistant</p>
                 <p className="text-[10px] text-muted">
-                  Browser speech only · no audio leaves this device
+                  Gemini Live native audio · browser voice fallback
                 </p>
               </div>
             </div>
@@ -212,7 +255,7 @@ export default function PreferencesPage() {
                 checked={preferences.voiceReplies}
                 onChange={(checked) => update("voiceReplies", checked)}
                 label="Speak replies aloud"
-                description="Uses your browser's speech synthesis. Turn off for silent answers; transcripts still appear."
+                description="Gemini Live speaks with native audio. If Live is unavailable, your browser's speech synthesis reads the answer instead. Turn off for silent answers; transcripts still appear."
               />
               <Switch
                 checked={preferences.saveTranscripts}
@@ -231,11 +274,116 @@ export default function PreferencesPage() {
                 description="Highlights deadlines, overdue invoices, and unreviewed scope changes when you open the workspace."
               />
             </div>
+
+            <div className="space-y-4 border-t border-[#ece8e0] px-5 py-4">
+              <div>
+                <p className="text-[12px] font-medium text-ink">Voice</p>
+                <p className="mt-0.5 text-[10.5px] leading-relaxed text-muted">
+                  Pick a native voice and compare them in Copilot. Achird is the
+                  default.
+                </p>
+                <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
+                  {voiceOptions.map((option) => {
+                    const active = preferences.voiceName === option.value;
+                    return (
+                      <button
+                        key={option.value}
+                        onClick={() => update("voiceName", option.value)}
+                        aria-pressed={active}
+                        className={cn(
+                          "rounded-xl border px-3 py-2 text-left transition",
+                          active
+                            ? "border-[#e24f00] bg-[#fff7f1] shadow-sm"
+                            : "border-[#e6e1d8] bg-white hover:border-[#cfc8bb] hover:bg-[#fcfbf9]",
+                        )}
+                      >
+                        <span className="flex items-center justify-between gap-2">
+                          <span className="text-[11.5px] font-semibold">
+                            {option.label}
+                          </span>
+                          {active ? (
+                            <Check size={12} className="text-orange" />
+                          ) : null}
+                        </span>
+                        <span className="mt-0.5 block text-[9.5px] text-muted">
+                          {option.detail}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <p className="text-[12px] font-medium text-ink">Language</p>
+                  <div className="mt-2 space-y-1.5">
+                    {languageOptions.map((option) => {
+                      const active =
+                        preferences.voiceLanguage === option.value;
+                      return (
+                        <button
+                          key={option.value}
+                          onClick={() =>
+                            update("voiceLanguage", option.value)
+                          }
+                          aria-pressed={active}
+                          className={cn(
+                            "w-full rounded-lg border px-2.5 py-2 text-left transition",
+                            active
+                              ? "border-[#e24f00] bg-[#fff7f1]"
+                              : "border-[#e6e1d8] bg-white hover:border-[#cfc8bb] hover:bg-[#fcfbf9]",
+                          )}
+                        >
+                          <span className="block text-[10.5px] font-semibold">
+                            {option.label}
+                          </span>
+                          <span className="mt-0.5 block text-[9px] leading-snug text-muted">
+                            {option.detail}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-[12px] font-medium text-ink">Style</p>
+                  <div className="mt-2 space-y-1.5">
+                    {styleOptions.map((option) => {
+                      const active = preferences.voiceStyle === option.value;
+                      return (
+                        <button
+                          key={option.value}
+                          onClick={() => update("voiceStyle", option.value)}
+                          aria-pressed={active}
+                          className={cn(
+                            "w-full rounded-lg border px-2.5 py-2 text-left transition",
+                            active
+                              ? "border-[#e24f00] bg-[#fff7f1]"
+                              : "border-[#e6e1d8] bg-white hover:border-[#cfc8bb] hover:bg-[#fcfbf9]",
+                          )}
+                        >
+                          <span className="block text-[10.5px] font-semibold">
+                            {option.label}
+                          </span>
+                          <span className="mt-0.5 block text-[9px] leading-snug text-muted">
+                            {option.detail}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div className="flex items-start gap-2 border-t border-[#ece8e0] bg-[#fcfbf9] px-5 py-3">
               <Volume2 size={12} className="mt-0.5 shrink-0 text-muted" />
               <p className="text-[10px] leading-relaxed text-muted">
-                Demo mode uses the Web Speech API. If your browser lacks a voice,
-                replies fall back to text with no error toast.
+                Live voice streams microphone audio to Gemini through this backend;
+                the API key never reaches the browser and audio is not stored. If
+                Live is unconfigured or the socket fails, Visun falls back to
+                browser speech recognition and synthesis.
               </p>
             </div>
           </Panel>

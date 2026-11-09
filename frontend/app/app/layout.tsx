@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { auth } from "@clerk/nextjs/server";
 import { AppShell } from "@/components/shell/AppShell";
 import { ToastProvider } from "@/components/ui";
+import { ClerkBoundary } from "@/components/auth/ClerkBoundary";
 import { ClerkWorkspaceProvider } from "@/components/auth/ClerkWorkspaceProvider";
 import { DEMO_COOKIE, clerkEnabled } from "@/lib/auth-config";
 import { AppStoreProvider } from "@/lib/store";
@@ -29,16 +30,18 @@ export default async function WorkspaceLayout({
     !clerkEnabled || (!signedIn && cookieStore.get(DEMO_COOKIE)?.value === "1");
 
   return (
-    <ToastProvider>
-      {demo ? (
-        <AppStoreProvider demo={clerkEnabled}>
-          <AppShell>{children}</AppShell>
-        </AppStoreProvider>
-      ) : (
-        <ClerkWorkspaceProvider>
-          <AppShell>{children}</AppShell>
-        </ClerkWorkspaceProvider>
-      )}
-    </ToastProvider>
+    <ClerkBoundary>
+      <ToastProvider>
+        {demo ? (
+          <AppStoreProvider demo={clerkEnabled}>
+            <AppShell>{children}</AppShell>
+          </AppStoreProvider>
+        ) : (
+          <ClerkWorkspaceProvider>
+            <AppShell>{children}</AppShell>
+          </ClerkWorkspaceProvider>
+        )}
+      </ToastProvider>
+    </ClerkBoundary>
   );
 }

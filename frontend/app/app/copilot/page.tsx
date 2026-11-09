@@ -13,10 +13,8 @@ import { useSearchParams } from "next/navigation";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   ArrowDown,
-  ArrowUp,
   Check,
   CheckCircle2,
-  ChevronDown,
   CircleSlash2,
   Clock3,
   FileAudio,
@@ -30,6 +28,7 @@ import {
   Search,
   Send,
   ShieldCheck,
+  SlidersHorizontal,
   Sparkles,
   Square,
   Volume2,
@@ -42,13 +41,20 @@ import {
   Badge,
   Button,
   Drawer,
-  EmptyState,
   useToast,
 } from "@/components/ui";
 import { buildAgentReply } from "@/lib/agent";
 import { api } from "@/lib/api";
 import { useAppStore } from "@/lib/store";
-import type { ChatMessage, Conversation, ProposedAction, Source } from "@/lib/types";
+import { GeminiVoiceClient } from "@/lib/voice-client";
+import type {
+  ChatMessage,
+  Conversation,
+  Source,
+  VoiceLanguage,
+  VoiceName,
+  VoiceStyle,
+} from "@/lib/types";
 import {
   cn,
   formatDay,
@@ -95,6 +101,25 @@ const voiceLabels: Record<VoiceState, string> = {
   unsupported: "Voice isn’t available here — type instead",
 };
 
+const voiceOptions: Array<{ value: VoiceName; label: string; note: string }> = [
+  { value: "Achird", label: "Achird", note: "Warm · default" },
+  { value: "Sulafat", label: "Sulafat", note: "Bright" },
+  { value: "Aoede", label: "Aoede", note: "Expressive" },
+  { value: "Puck", label: "Puck", note: "Playful" },
+];
+
+const languageOptions: Array<{ value: VoiceLanguage; label: string }> = [
+  { value: "auto", label: "Auto" },
+  { value: "english", label: "English" },
+  { value: "hindi", label: "Hindi" },
+];
+
+const styleOptions: Array<{ value: VoiceStyle; label: string }> = [
+  { value: "natural", label: "Natural" },
+  { value: "professional", label: "Professional" },
+  { value: "energetic", label: "Energetic" },
+];
+
 function VoiceOrb({
   state,
   onClick,
@@ -112,7 +137,7 @@ function VoiceOrb({
   return (
     <button
       onClick={onClick}
-      disabled={disabled || thinking || speaking}
+      disabled={disabled || thinking}
       className={cn(
         "relative flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-full border transition-all duration-300",
         listening
@@ -794,6 +819,12 @@ function CopilotWorkspace() {
   const [thinkingStep, setThinkingStep] = useState(0);
   const [voiceState, setVoiceState] = useState<VoiceState>("idle");
   const [interim, setInterim] = useState("");
+  const [liveReply, setLiveReply] = useState("");
+  const [voicePanelOpen, setVoicePanelOpen] = useState(false);
+  const [voiceEngine, setVoiceEngine] = useState<"checking" | "live" | "browser">(
+    "checking",
+  );
+  const [voiceEngineModel, setVoiceEngineModel] = useState<string | null>(null);
   const [selectedSource, setSelectedSource] = useState<{
     messageId: string;
     source: Source;
@@ -804,6 +835,12 @@ function CopilotWorkspace() {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const liveClientRef = useRef<GeminiVoiceClient | null>(null);
+  const voiceIntentRef = useRef(false);
+  const voiceRestartsRef = useRef(0);
+  const voiceFinalRef = useRef("");
+  const interimRef = useRef("");
+  const voiceTimerRef = useRef<number | null>(null);
   const autoSentRef = useRef(false);
   const thinkingTimer = useRef<number | null>(null);
 
@@ -871,6 +908,43 @@ function CopilotWorkspace() {
     };
   }, [thinking]);
 
+  useEffect(() => {
+    let cancelled = false;
+    void api.health().then((result) => {
+      if (cancelled) return;
+      if (result.ok) {
+        setVoiceEngine(result.data.voice.configured ? "live" : "browser");
+        setVoiceEngineModel(
+          result.data.voice.configured ? result.data.voice.model : null,
+        );
+      } else {
+        setVoiceEngine("browser");
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Release the microphone and any pending voice timer when leaving the page.
+  useEffect(() => {
+    return () => {
+      liveClientRef.current?.stop();
+      liveClientRef.current = null;
+      voiceIntentRef.current = false;
+      if (voiceTimerRef.current !== null) {
+        window.clearTimeout(voiceTimerRef.current);
+        voiceTimerRef.current = null;
+      }
+      try {
+        recognitionRef.current?.abort();
+      } catch {
+        // Already stopped.
+      }
+      recognitionRef.current = null;
+    };
+  }, []);
+
   const speak = useCallback(
     (raw: string) => {
       if (typeof window === "undefined" || !("speechSynthesis" in window)) {
@@ -907,6 +981,12 @@ function CopilotWorkspace() {
     async (raw: string, modality: "text" | "voice" = "text") => {
       const text = raw.trim();
       if (!text || thinking) return;
+
+      if (liveClientRef.current) {
+        liveClientRef.current.stop();
+        liveClientRef.current = null;
+        setLiveReply("");
+      }
 
       let conversationId = activeConversation?.id;
       if (!conversationId) {
@@ -957,6 +1037,8 @@ function CopilotWorkspace() {
         if (modality === "voice" && state.preferences.voiceReplies) {
           setVoiceState("speaking");
           window.setTimeout(() => speak(data.message.text), 120);
+        } else if (modality === "voice") {
+          setVoiceState("idle");
         }
         return;
       }
@@ -986,6 +1068,8 @@ function CopilotWorkspace() {
       if (modality === "voice" && state.preferences.voiceReplies) {
         setVoiceState("speaking");
         window.setTimeout(() => speak(reply.text), 120);
+      } else if (modality === "voice") {
+        setVoiceState("idle");
       }
     },
     [
@@ -1014,17 +1098,39 @@ function CopilotWorkspace() {
     void send(prompt, "text");
   }, [hydrated, searchParams, send]);
 
-  const startVoice = () => {
-    if (voiceState === "listening") {
-      recognitionRef.current?.stop();
-      return;
+  const clearVoiceTimer = () => {
+    if (voiceTimerRef.current !== null) {
+      window.clearTimeout(voiceTimerRef.current);
+      voiceTimerRef.current = null;
     }
-    if (voiceState === "speaking") {
-      window.speechSynthesis?.cancel();
+  };
+
+  const stopVoice = (transcript?: string) => {
+    const text = (
+      transcript ?? `${voiceFinalRef.current} ${interimRef.current}`
+    ).trim();
+    voiceIntentRef.current = false;
+    voiceRestartsRef.current = 0;
+    clearVoiceTimer();
+    voiceFinalRef.current = "";
+    interimRef.current = "";
+    setInterim("");
+    try {
+      recognitionRef.current?.abort();
+    } catch {
+      // Already stopped — nothing to clean up.
+    }
+    recognitionRef.current = null;
+    if (text.length >= 2) {
+      void send(text, "voice");
+    } else {
       setVoiceState("idle");
-      return;
     }
+  };
+
+  const beginBrowserRecognition = () => {
     if (typeof window === "undefined") return;
+
     const host = window as unknown as {
       SpeechRecognition?: new () => SpeechRecognitionLike;
       webkitSpeechRecognition?: new () => SpeechRecognitionLike;
@@ -1040,49 +1146,289 @@ function CopilotWorkspace() {
       });
       return;
     }
-    const recognition = new Recognition();
-    recognitionRef.current = recognition;
-    recognition.lang = "en-US";
-    recognition.continuous = false;
-    recognition.interimResults = true;
-    recognition.onstart = () => {
-      setVoiceState("listening");
-      setInterim("");
-      setStickToBottom(true);
-    };
-    recognition.onresult = (event) => {
-      let interimText = "";
-      let finalText = "";
-      for (let index = event.resultIndex; index < event.results.length; index += 1) {
-        const result = event.results[index];
-        if (result.isFinal) finalText += result[0].transcript;
-        else interimText += result[0].transcript;
-      }
-      setInterim(interimText);
-      if (finalText.trim()) {
-        recognition.stop();
+
+    voiceIntentRef.current = true;
+    voiceRestartsRef.current = 0;
+    voiceFinalRef.current = "";
+    interimRef.current = "";
+    clearVoiceTimer();
+    setInterim("");
+    setLiveReply("");
+    setStickToBottom(true);
+    // Reflect the click immediately; the browser may take a moment to open
+    // the microphone or ask for permission.
+    setVoiceState("listening");
+
+    const begin = () => {
+      if (!voiceIntentRef.current) return;
+      const recognition = new Recognition();
+      recognitionRef.current = recognition;
+      recognition.lang =
+        state.preferences.voiceLanguage === "hindi" ? "hi-IN" : "en-IN";
+      // Keep a single session open across natural pauses. Chrome otherwise
+      // ends the session at the first pause and the orb drops back to idle.
+      recognition.continuous = true;
+      recognition.interimResults = true;
+
+      recognition.onstart = () => {
+        setVoiceState("listening");
+        setStickToBottom(true);
+      };
+
+      recognition.onresult = (event) => {
+        voiceRestartsRef.current = 0;
+        let interimText = "";
+        let finalText = voiceFinalRef.current;
+        for (let index = event.resultIndex; index < event.results.length; index += 1) {
+          const result = event.results[index];
+          const transcript = result[0]?.transcript ?? "";
+          if (result.isFinal) finalText += transcript;
+          else interimText += transcript;
+        }
+        voiceFinalRef.current = finalText;
+        interimRef.current = interimText;
+        setInterim(interimText);
+
+        if (finalText.trim()) {
+          // Wait for a short pause before sending, then include any trailing
+          // interim words so nothing is dropped.
+          clearVoiceTimer();
+          voiceTimerRef.current = window.setTimeout(() => {
+            const pending = `${voiceFinalRef.current} ${interimRef.current}`.trim();
+            stopVoice(pending);
+          }, 900);
+        }
+      };
+
+      recognition.onerror = (event) => {
+        if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+          voiceIntentRef.current = false;
+          voiceRestartsRef.current = 0;
+          clearVoiceTimer();
+          setVoiceState("denied");
+          push({
+            tone: "error",
+            title: "Microphone access blocked",
+            detail:
+              "Allow microphone access for this site in your browser settings, or type your question instead.",
+          });
+          return;
+        }
+
+        if (
+          event.error === "audio-capture" ||
+          event.error === "network" ||
+          event.error === "language-not-supported"
+        ) {
+          voiceIntentRef.current = false;
+          voiceRestartsRef.current = 0;
+          clearVoiceTimer();
+          setVoiceState("idle");
+          push({
+            tone: "error",
+            title: "Voice input stopped",
+            detail:
+              event.error === "network"
+                ? "Speech recognition lost its network connection. Check your connection and try again."
+                : "The microphone could not be used. Close other apps using it, then try again or type instead.",
+          });
+        }
+        // "no-speech" and "aborted" are recoverable: onend restarts the mic.
+      };
+
+      recognition.onend = () => {
+        recognitionRef.current = null;
+        if (voiceIntentRef.current) {
+          voiceRestartsRef.current += 1;
+          if (voiceRestartsRef.current > 24) {
+            voiceIntentRef.current = false;
+            voiceRestartsRef.current = 0;
+            setVoiceState("idle");
+            push({
+              tone: "error",
+              title: "Microphone keeps stopping",
+              detail:
+                "Check that no other app is holding the microphone, then try again or type instead.",
+            });
+            return;
+          }
+          // The browser can end a session on silence or a hiccup. Restart it
+          // while the visitor still has listening turned on.
+          window.setTimeout(() => {
+            if (voiceIntentRef.current) begin();
+          }, 250);
+          return;
+        }
+        setVoiceState((current) =>
+          current === "listening" ? "idle" : current,
+        );
+      };
+
+      try {
+        recognition.start();
+      } catch {
+        voiceIntentRef.current = false;
+        recognitionRef.current = null;
         setVoiceState("idle");
-        void send(finalText, "voice");
-      }
-    };
-    recognition.onerror = (event) => {
-      setVoiceState(event.error === "not-allowed" ? "denied" : "idle");
-      if (event.error === "not-allowed") {
         push({
           tone: "error",
-          title: "Microphone access blocked",
-          detail: "Type your question instead — the tools and evidence are identical.",
+          title: "Voice input could not start",
+          detail: "Try again, or type your question in the composer instead.",
         });
       }
     };
-    recognition.onend = () => {
-      if (voiceState !== "thinking") setVoiceState((current) => (current === "listening" ? "idle" : current));
-    };
+
+    begin();
+  };
+
+  const stopLiveVoice = () => {
+    liveClientRef.current?.stop();
+    liveClientRef.current = null;
+    setLiveReply("");
+    setInterim("");
+    setVoiceState("idle");
+  };
+
+  const beginLiveVoice = async () => {
+    if (typeof window === "undefined") return;
+
+    if (recognitionRef.current) {
+      voiceIntentRef.current = false;
+      try {
+        recognitionRef.current.abort();
+      } catch {
+        // Already stopped.
+      }
+      recognitionRef.current = null;
+    }
+    clearVoiceTimer();
+    setInterim("");
+    setLiveReply("");
+    setStickToBottom(true);
+    setVoiceState("listening");
+
+    let conversationId = activeConversation?.id;
+    if (!conversationId) {
+      conversationId = createConversation("Voice session");
+      setActiveId(conversationId);
+    }
+    const titlePending =
+      !activeConversation || activeConversation.messages.length === 0;
+
+    const client = new GeminiVoiceClient({
+      onStatus: (status, detail) => {
+        if (status === "ready") {
+          setVoiceEngine("live");
+          if (detail?.model) setVoiceEngineModel(detail.model);
+          setVoiceState("listening");
+          return;
+        }
+        if (status === "thinking") {
+          setVoiceState("thinking");
+          return;
+        }
+        if (status === "speaking") {
+          setVoiceState("speaking");
+          return;
+        }
+        if (status === "interrupted") {
+          setLiveReply("");
+          setVoiceState("listening");
+          return;
+        }
+        if (status === "listening") {
+          setVoiceState("listening");
+          return;
+        }
+        setVoiceState("idle");
+      },
+      onTranscript: (role, text) => {
+        if (role === "assistant") setLiveReply(text);
+        else setInterim(text);
+      },
+      onTurn: (turn) => {
+        const target = turn.conversationId || conversationId;
+        setInterim("");
+        setLiveReply("");
+        if (turn.userMessage) {
+          addMessage(target, turn.userMessage);
+        } else if (turn.userText) {
+          addMessage(target, {
+            id: uid("m"),
+            role: "user",
+            modality: "voice",
+            text: turn.userText,
+            at: new Date().toISOString(),
+          });
+        }
+        if (turn.assistantMessage) {
+          addMessage(target, turn.assistantMessage);
+        } else if (turn.assistantText) {
+          addMessage(target, {
+            id: uid("m"),
+            role: "assistant",
+            modality: "voice",
+            text: turn.assistantText,
+            at: new Date().toISOString(),
+          });
+        }
+        if (turn.userText && titlePending) {
+          renameConversation(target, turn.userText.slice(0, 44));
+        }
+      },
+      onApproval: (action) => {
+        push({
+          tone: "info",
+          title: "Draft ready for approval",
+          detail: `${action.title}. Nothing has been sent.`,
+        });
+      },
+      onError: (message) => {
+        setVoiceState("idle");
+        push({
+          tone: "error",
+          title: "Voice session",
+          detail: message,
+        });
+      },
+    });
+    liveClientRef.current = client;
+
+    let mode: "live" | "fallback" = "fallback";
     try {
-      recognition.start();
+      mode = await client.connect(conversationId);
     } catch {
+      mode = "fallback";
+    }
+
+    if (mode === "fallback") {
+      client.stop();
+      if (liveClientRef.current === client) liveClientRef.current = null;
+      setVoiceEngine("browser");
+      setVoiceState("idle");
+      beginBrowserRecognition();
+      return;
+    }
+    setVoiceEngine("live");
+    setVoiceState("listening");
+  };
+
+  const startVoice = () => {
+    if (typeof window === "undefined") return;
+
+    if (liveClientRef.current) {
+      stopLiveVoice();
+      return;
+    }
+    if (voiceState === "listening" || voiceState === "thinking") {
+      stopVoice();
+      return;
+    }
+    if (voiceState === "speaking") {
+      window.speechSynthesis?.cancel();
       setVoiceState("idle");
     }
+    void beginLiveVoice();
   };
 
   const newSession = () => {
@@ -1114,9 +1460,6 @@ function CopilotWorkspace() {
     setShowJump(!atBottom);
   };
 
-  const lastAssistant = activeConversation?.messages
-    .filter((message) => message.role === "assistant")
-    .at(-1);
   const suggestedPrompts = [
     "What is due this week?",
     "How much is still unpaid?",
@@ -1159,6 +1502,16 @@ function CopilotWorkspace() {
         <div className="flex items-center gap-2">
           <Badge tone={voiceState === "idle" ? "success" : "warning"} dot>
             {voiceLabels[voiceState]}
+          </Badge>
+          <Badge
+            tone={voiceEngine === "live" ? "success" : "neutral"}
+            className="hidden sm:inline-flex"
+          >
+            {voiceEngine === "live"
+              ? "Gemini Live"
+              : voiceEngine === "browser"
+                ? "Browser voice"
+                : "Checking voice"}
           </Badge>
           <Button variant="primary" size="md" onClick={newSession}>
             <Plus size={14} /> New session
@@ -1391,6 +1744,19 @@ function CopilotWorkspace() {
           ) : null}
 
           <div className="shrink-0 border-t border-[#ece8e0] bg-[#fbfaf7] p-3 sm:p-4">
+            {liveReply ? (
+              <div className="mb-2 flex items-start gap-2 rounded-xl border border-[#efd9a8] bg-[#fff9e8] px-3 py-2 text-[11.5px] leading-relaxed text-[#5b4a1a]">
+                <Sparkles
+                  size={12}
+                  className="mt-0.5 shrink-0 animate-pulse text-[#a67c00]"
+                />
+                <span>{liveReply}</span>
+                <span className="ml-auto shrink-0 font-mono text-[8.5px] uppercase tracking-wider text-[#a67c00]">
+                  live
+                </span>
+              </div>
+            ) : null}
+
             {interim ? (
               <div className="mb-2 flex items-center gap-2 rounded-xl border border-[#e7cf6f] bg-yellow/50 px-3 py-2 text-[11.5px] text-[#6b5511]">
                 <Mic size={12} className="animate-pulse" />
@@ -1398,6 +1764,124 @@ function CopilotWorkspace() {
                 <span className="ml-auto font-mono text-[8.5px] uppercase tracking-wider">
                   interim
                 </span>
+              </div>
+            ) : null}
+
+            {voicePanelOpen ? (
+              <div className="mb-2 rounded-2xl border border-[#e0dbd2] bg-white p-3 shadow-neu-sm">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-[11px] font-semibold">Voice settings</p>
+                    <p className="mt-0.5 text-[9.5px] text-muted">
+                      {voiceEngine === "live"
+                        ? `Gemini Live · ${voiceEngineModel ?? "native audio"}`
+                        : voiceEngine === "browser"
+                          ? "Browser voice fallback"
+                          : "Checking voice engine…"}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setVoicePanelOpen(false)}
+                    className="rounded-md p-1 text-muted transition hover:bg-stone hover:text-ink"
+                    aria-label="Close voice settings"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+                <div className="mt-3 space-y-2.5">
+                  <div>
+                    <p className="eyebrow !text-[8.5px]">Voice</p>
+                    <div className="mt-1.5 grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                      {voiceOptions.map((option) => {
+                        const active =
+                          state.preferences.voiceName === option.value;
+                        return (
+                          <button
+                            key={option.value}
+                            onClick={() =>
+                              updatePreferences({ voiceName: option.value })
+                            }
+                            aria-pressed={active}
+                            className={cn(
+                              "rounded-lg border px-2 py-1.5 text-left transition",
+                              active
+                                ? "border-[#e24f00] bg-[#fff0e6] text-ink"
+                                : "border-[#e6e1d8] bg-[#fbfaf7] text-[#6f6a62] hover:border-[#d3ccbf] hover:bg-white",
+                            )}
+                          >
+                            <span className="block text-[10.5px] font-semibold">
+                              {option.label}
+                            </span>
+                            <span className="mt-0.5 block text-[8.5px] text-[#9b958b]">
+                              {option.note}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div className="grid gap-2.5 sm:grid-cols-2">
+                    <div>
+                      <p className="eyebrow !text-[8.5px]">Language</p>
+                      <div className="mt-1.5 flex gap-1">
+                        {languageOptions.map((option) => {
+                          const active =
+                            state.preferences.voiceLanguage === option.value;
+                          return (
+                            <button
+                              key={option.value}
+                              onClick={() =>
+                                updatePreferences({
+                                  voiceLanguage: option.value,
+                                })
+                              }
+                              aria-pressed={active}
+                              className={cn(
+                                "flex-1 rounded-lg border px-2 py-1.5 text-[10px] font-medium transition",
+                                active
+                                  ? "border-[#e24f00] bg-[#fff0e6] text-ink"
+                                  : "border-[#e6e1d8] bg-[#fbfaf7] text-[#6f6a62] hover:border-[#d3ccbf] hover:bg-white",
+                              )}
+                            >
+                              {option.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div>
+                      <p className="eyebrow !text-[8.5px]">Style</p>
+                      <div className="mt-1.5 flex gap-1">
+                        {styleOptions.map((option) => {
+                          const active =
+                            state.preferences.voiceStyle === option.value;
+                          return (
+                            <button
+                              key={option.value}
+                              onClick={() =>
+                                updatePreferences({ voiceStyle: option.value })
+                              }
+                              aria-pressed={active}
+                              className={cn(
+                                "flex-1 rounded-lg border px-1.5 py-1.5 text-[9.5px] font-medium transition",
+                                active
+                                  ? "border-[#e24f00] bg-[#fff0e6] text-ink"
+                                  : "border-[#e6e1d8] bg-[#fbfaf7] text-[#6f6a62] hover:border-[#d3ccbf] hover:bg-white",
+                              )}
+                            >
+                              {option.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <p className="mt-2 text-[9px] leading-relaxed text-[#9b958b]">
+                  Saved to your workspace and applied when you start the next
+                  voice session. Live voice uses Gemini native audio; the fallback
+                  uses your browser voice.
+                </p>
               </div>
             ) : null}
 
@@ -1436,11 +1920,28 @@ function CopilotWorkspace() {
                     <p className="text-[9px] text-[#9b958b]">
                       {thinking
                         ? "Tools are running · nothing is sent"
-                        : "Mic audio is not stored"}
+                        : voiceEngine === "live"
+                          ? "Gemini Live · mic audio is not stored"
+                          : voiceEngine === "browser"
+                            ? "Browser voice · mic audio is not stored"
+                            : "Checking voice engine…"}
                     </p>
                   </div>
                 </div>
                 <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => setVoicePanelOpen((open) => !open)}
+                    className={cn(
+                      "flex h-9 w-9 items-center justify-center rounded-lg border transition",
+                      voicePanelOpen
+                        ? "border-[#e0a58a] bg-[#fff0e6] text-ink"
+                        : "border-[#e0dbd2] bg-white text-ink",
+                    )}
+                    aria-label="Voice settings"
+                    aria-expanded={voicePanelOpen}
+                  >
+                    <SlidersHorizontal size={15} />
+                  </button>
                   <button
                     onClick={() =>
                       updatePreferences({
