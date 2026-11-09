@@ -9,7 +9,7 @@ deterministic answer is returned unchanged.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Protocol
 
 from sqlmodel import Session
@@ -415,7 +415,7 @@ class AdkAgent:
         project_id: str | None,
     ) -> AgentReply:
         from .adk_agent import AdkUnavailable, run_adk
-        from .ai_config import resolve_ai_config
+        from .ai_config import resolve_ai_config, text_model_fallback
 
         config = resolve_ai_config(session, principal.workspace_id)
         if config is None:
@@ -427,15 +427,29 @@ class AdkAgent:
                 session=session, principal=principal, message=message, config=config
             )
         except AdkUnavailable as exc:
-            log.warning("adk_fallback", reason=str(exc)[:200])
-            grounded = self.fallback.respond(
-                session=session, principal=principal, message=message, project_id=project_id
-            )
-            grounded.text = (
-                f"_The configured Gemini model could not be used ({str(exc)[:160]}), so this "
-                "answer comes from the deterministic engine._\n\n" + grounded.text
-            )
-            return grounded
+            # A retired model id (or one Google has restricted) should not take
+            # chat down: retry once with a known-working text model.
+            retry_model = text_model_fallback(config.text_model, str(exc))
+            if retry_model is not None:
+                log.warning(
+                    "adk_retry_model",
+                    model=config.text_model,
+                    retry=retry_model,
+                    reason=str(exc)[:160],
+                )
+                try:
+                    text, trace = run_adk(
+                        session=session,
+                        principal=principal,
+                        message=message,
+                        config=replace(config, text_model=retry_model),
+                    )
+                except AdkUnavailable as retry_exc:
+                    return self._unavailable(
+                        retry_exc, session, principal, message, project_id
+                    )
+            else:
+                return self._unavailable(exc, session, principal, message, project_id)
 
         tools = [
             ToolResult(
@@ -463,6 +477,41 @@ class AdkAgent:
             action_id=action_id,
             facts={tool.name: tool.data for tool in tools},
         )
+
+    def _unavailable(
+        self,
+        exc: Exception,
+        session: Session,
+        principal: Principal,
+        message: str,
+        project_id: str | None,
+    ) -> AgentReply:
+        """Honest fallback with a short, actionable reason instead of provider JSON."""
+        log.warning("adk_fallback", reason=str(exc)[:200])
+        grounded = self.fallback.respond(
+            session=session, principal=principal, message=message, project_id=project_id
+        )
+        detail = str(exc).lower()
+        reason = "Gemini rejected the request"
+        hint = " Pick a different text model in Settings → Integrations."
+        if "503" in detail or "unavailable" in detail or "high demand" in detail:
+            reason = "Gemini is temporarily busy"
+            hint = " Try again in a moment."
+        elif "429" in detail or "quota" in detail or "rate limit" in detail:
+            reason = "the API quota was exhausted"
+            hint = " Check the key's quota in Google AI Studio."
+        elif "api key" in detail or "permission" in detail or "401" in detail or "403" in detail:
+            reason = "the API key was rejected"
+            hint = " Update the Gemini key in Settings → Integrations."
+        elif "live" in detail or "bidi" in detail:
+            reason = "that model only supports voice, not text chat"
+        elif "404" in detail or "not_found" in detail or "no longer available" in detail:
+            reason = "that model is no longer available"
+        grounded.text = (
+            f"_Gemini could not answer ({reason}), so this answer comes from the "
+            f"deterministic engine.{hint}_\n\n" + grounded.text
+        )
+        return grounded
 
 
 def configured_agent(session: Session | None = None, workspace_id: str | None = None) -> AgentBackend:

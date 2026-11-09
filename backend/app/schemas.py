@@ -191,6 +191,9 @@ class PreferencesUpdate(BaseModel):
     dailyBrief: bool | None = None
     timezone: str | None = Field(default=None, max_length=64)
     retention: Literal["30", "90", "365", "forever"] | None = None
+    voiceName: Literal["Achird", "Sulafat", "Aoede", "Puck"] | None = None
+    voiceLanguage: Literal["auto", "english", "hindi"] | None = None
+    voiceStyle: Literal["natural", "professional", "energetic"] | None = None
 
 
 class ActivityCreate(BaseModel):

@@ -662,6 +662,9 @@ def seed_if_empty(session: Session) -> bool:
                 "dailyBrief": True,
                 "timezone": "Asia/Kolkata",
                 "retention": "90",
+                "voiceName": "Achird",
+                "voiceLanguage": "auto",
+                "voiceStyle": "natural",
             },
         )
     )

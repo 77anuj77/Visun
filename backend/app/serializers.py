@@ -306,6 +306,9 @@ def preferences_out(preference: Preference | None) -> dict[str, Any]:
         "dailyBrief": values.get("dailyBrief", True),
         "timezone": values.get("timezone", "Asia/Kolkata"),
         "retention": values.get("retention", "90"),
+        "voiceName": values.get("voiceName", "Achird"),
+        "voiceLanguage": values.get("voiceLanguage", "auto"),
+        "voiceStyle": values.get("voiceStyle", "natural"),
     }
 
 

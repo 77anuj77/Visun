@@ -151,4 +151,5 @@ def test_adk_agent_is_selected_only_with_workspace_credentials_and_falls_back(mo
         finally:
             adk_module.run_adk = original
         assert reply.backend == "deterministic"
-        assert "could not be used" in reply.text
+        assert "could not answer" in reply.text
+        assert "deterministic engine" in reply.text

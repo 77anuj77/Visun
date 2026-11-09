@@ -2114,6 +2114,7 @@ name = "visun-backend"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "alembic" },
     { name = "email-validator" },
     { name = "fastapi" },
     { name = "httpx" },
@@ -2134,7 +2135,6 @@ agent = [
     { name = "google-genai" },
 ]
 dev = [
-    { name = "alembic" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "ruff" },
@@ -2154,7 +2154,7 @@ reports = [
 
 [package.metadata]
 requires-dist = [
-    { name = "alembic", marker = "extra == 'dev'", specifier = ">=1.13" },
+    { name = "alembic", specifier = ">=1.13" },
     { name = "email-validator", specifier = ">=2.2" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "google-adk", marker = "extra == 'agent'", specifier = ">=1.0" },

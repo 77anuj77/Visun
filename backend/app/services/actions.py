@@ -296,6 +296,11 @@ async def approve_action(
         session.refresh(action)
         return action, action_out(action)
 
+    # Public demo visitors can walk the full approval flow, but the execution
+    # must stay local and clearly simulated. This is enforced here rather than
+    # trusting the deployment's provider mode or saved credentials.
+    from ..seed import WORKSPACE_ID as DEMO_WORKSPACE_ID
+
     try:
         result = await execute_provider_action(
             provider=action.provider,
@@ -305,6 +310,13 @@ async def approve_action(
             body=action.body,
             amount_cents=action.amount_cents,
             currency=action.currency,
+            # Local AUTH_MODE=demo is a development path and must still be able
+            # to exercise real-mode adapters. A public demo on a Clerk
+            # installation is the case that must never reach a provider.
+            force_simulated=(
+                settings.auth_mode != "demo"
+                and principal.workspace_id == DEMO_WORKSPACE_ID
+            ),
         )
     except ProviderError as exc:
         action.status = "failed"

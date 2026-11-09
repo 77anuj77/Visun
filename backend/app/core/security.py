@@ -297,6 +297,32 @@ def get_principal(
 PrincipalDep = Annotated[Principal, Depends(get_principal)]
 
 
+def get_optional_principal(
+    session: SessionDep,
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)],
+    request: Request,
+) -> Principal | None:
+    """Resolve the caller when credentials are present, without ever raising.
+
+    Lets public endpoints report a caller's own workspace configuration while
+    keeping the unauthenticated payload available.
+    """
+    allow_demo = _wants_public_demo(request.headers.get("x-visun-demo"))
+    if settings.auth_mode != "demo" and credentials is None and not allow_demo:
+        return None
+    try:
+        return resolve_principal(
+            session,
+            credentials.credentials if credentials else None,
+            allow_demo=allow_demo,
+        )
+    except HTTPException:
+        return None
+
+
+OptionalPrincipalDep = Annotated[Principal | None, Depends(get_optional_principal)]
+
+
 def require_writer(principal: PrincipalDep) -> Principal:
     if not principal.can_write:
         raise HTTPException(

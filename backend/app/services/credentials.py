@@ -131,13 +131,13 @@ PROVIDER_SPECS: dict[str, dict[str, Any]] = {
                 "key": "text_model",
                 "label": "Text model ID",
                 "envVar": "GEMINI_TEXT_MODEL",
-                "placeholder": "gemini-2.5-flash",
+                "placeholder": "gemini-3.8-flash",
             },
             {
                 "key": "live_model",
                 "label": "Live / voice model ID",
                 "envVar": "GEMINI_LIVE_MODEL",
-                "placeholder": "gemini-live-2.5-flash-preview",
+                "placeholder": "gemini-3.8-live",
                 "optional": True,
             },
         ],
@@ -462,7 +462,23 @@ def _verify_gemini(values: dict[str, str]) -> str:
             f"Model '{text_id}' does not support generateContent, so it cannot answer chat."
         )
 
-    detail = f"Gemini key valid · {text_id} supports generateContent"
+    # The model list still advertises retired ids, so make one tiny real call.
+    # This also catches Live-only ids that look fine in the list.
+    with httpx.Client(timeout=HTTP_TIMEOUT) as client:
+        ping = client.post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/{text_id}:generateContent",
+            headers={**headers, "Content-Type": "application/json"},
+            json={
+                "contents": [{"role": "user", "parts": [{"text": "ping"}]}],
+                "generationConfig": {"maxOutputTokens": 1},
+            },
+        )
+    if ping.status_code != 200:
+        raise CredentialError(
+            f"Model '{text_id}' cannot answer chat: {_provider_error(ping, 'Gemini')}"
+        )
+
+    detail = f"Gemini key valid · {text_id} answered a test prompt"
     live_id = values.get("live_model", "").removeprefix("models/")
     if live_id:
         live_model = models.get(live_id)

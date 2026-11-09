@@ -358,7 +358,20 @@ async def execute_provider_action(
     amount_cents: int | None,
     currency: str | None,
     metadata: dict[str, str] | None = None,
+    force_simulated: bool = False,
 ) -> ProviderResult:
+    # Public demo sessions may never reach a real provider, even when the
+    # deployment's PROVIDER_MODE is real or an owner has saved credentials.
+    if force_simulated:
+        return ProviderResult(
+            ok=True,
+            provider_id=_simulated_id(provider),
+            simulated=True,
+            detail=(
+                f"Demo workspace: simulated {kind.replace('_', ' ')} for "
+                f"{provider}. Nothing left Visun."
+            ),
+        )
     adapter = adapter_for(provider)
     if adapter is None:
         raise ProviderError(f"Unsupported provider: {provider}")

@@ -4,6 +4,15 @@ from typing import Literal
 from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Native-audio Live model used when no explicit model is configured. The value
+# can be overridden per workspace in Settings → Integrations or in `.env`.
+DEFAULT_LIVE_MODEL = "gemini-3.8-live"
+
+# Text model used when a Live-only id is saved in the text field (or when the
+# configured text model has been retired by Google). Any model that supports
+# `generateContent` can be used instead; this is only the last-resort fallback.
+DEFAULT_TEXT_MODEL = "gemini-3.8-flash"
+
 
 class Settings(BaseSettings):
     """Server configuration. Secrets never leave the backend.
@@ -162,8 +171,17 @@ class Settings(BaseSettings):
         return bool(self.google_api_key and self.gemini_text_model)
 
     @property
+    def live_model(self) -> str:
+        """The configured Live model, or the documented native-audio default."""
+        return self.gemini_live_model.strip() or DEFAULT_LIVE_MODEL
+
+    @property
     def gemini_live_configured(self) -> bool:
-        return bool(self.google_api_key and self.gemini_live_model)
+        return bool(
+            self.google_api_key
+            and self.voice_backend != "browser"
+            and self.live_model
+        )
 
     @property
     def paypal_base_url(self) -> str:
