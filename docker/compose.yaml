@@ -1,0 +1,67 @@
+# Visun — single-customer installation.
+#
+# Run from this directory:
+#   cp .env.example .env
+#   cp env/backend.env.example env/backend.env
+#   cp env/frontend.env.example env/frontend.env
+#   docker compose up -d --build
+#
+# Only the web container is published by default. The API stays on the internal
+# Compose network and is reached through Next.js's same-origin rewrite.
+
+name: visun
+
+services:
+  backend:
+    build:
+      context: ../backend
+    env_file:
+      - ./env/backend.env
+    environment:
+      # A named volume, never a database copied into the image.
+      DATABASE_URL: sqlite:////data/visun.db
+      FRONTEND_ORIGIN: ${VISUN_APP_ORIGIN:-http://localhost:3000}
+    volumes:
+      - visun-data:/data
+    expose:
+      - "8000"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ../frontend
+      args:
+        BACKEND_ORIGIN: http://backend:8000
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:?Set NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY in docker/.env}
+        NEXT_PUBLIC_CLERK_SIGN_IN_URL: ${NEXT_PUBLIC_CLERK_SIGN_IN_URL:-/sign-in}
+        NEXT_PUBLIC_CLERK_SIGN_UP_URL: ${NEXT_PUBLIC_CLERK_SIGN_UP_URL:-/sign-up}
+        NEXT_PUBLIC_CLERK_SIGN_IN_FALLBACK_REDIRECT_URL: ${NEXT_PUBLIC_CLERK_SIGN_IN_FALLBACK_REDIRECT_URL:-/app}
+        NEXT_PUBLIC_CLERK_SIGN_UP_FALLBACK_REDIRECT_URL: ${NEXT_PUBLIC_CLERK_SIGN_UP_FALLBACK_REDIRECT_URL:-/app}
+    env_file:
+      - ./env/frontend.env
+    environment:
+      BACKEND_ORIGIN: http://backend:8000
+    ports:
+      - "${VISUN_PORT:-3000}:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Optional local reverse proxy. Enable with:
+  #   docker compose --profile proxy up -d
+  # It listens on VISUN_PROXY_PORT (default 8080) and forwards to the web app.
+  proxy:
+    image: caddy:2-alpine
+    profiles: ["proxy"]
+    ports:
+      - "${VISUN_PROXY_PORT:-8080}:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - frontend
+    restart: unless-stopped
+
+volumes:
+  visun-data:
+    name: visun-data

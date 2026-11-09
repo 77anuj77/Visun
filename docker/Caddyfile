@@ -1,0 +1,10 @@
+# Optional local reverse proxy for Visun.
+#
+# For localhost-only use, http://localhost:8080 is enough. For a trusted LAN or
+# a domain, replace :80 with the hostname and configure TLS certificates in
+# Caddy. Do not publish the API container directly to the internet.
+
+:80 {
+	encode zstd gzip
+	reverse_proxy frontend:3000
+}
