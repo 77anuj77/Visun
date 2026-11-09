@@ -1,12 +1,5 @@
 import type { Metadata, Viewport } from "next";
 import { Instrument_Serif, Inter, IBM_Plex_Mono } from "next/font/google";
-import { ClerkProvider } from "@clerk/nextjs";
-import {
-  clerkEnabled,
-  clerkPublishableKey,
-  clerkSignInUrl,
-  clerkSignUpUrl,
-} from "@/lib/auth-config";
 import "./globals.css";
 
 const inter = Inter({
@@ -62,7 +55,7 @@ export const viewport: Viewport = {
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
-  const document = (
+  return (
     <html lang="en">
       <body
         className={`${inter.variable} ${instrument.variable} ${plexMono.variable} antialiased`}
@@ -70,17 +63,5 @@ export default function RootLayout({
         {children}
       </body>
     </html>
-  );
-
-  if (!clerkEnabled) return document;
-
-  return (
-    <ClerkProvider
-      publishableKey={clerkPublishableKey}
-      signInUrl={clerkSignInUrl}
-      signUpUrl={clerkSignUpUrl}
-    >
-      {document}
-    </ClerkProvider>
   );
 }

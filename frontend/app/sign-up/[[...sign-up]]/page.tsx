@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { SignUp } from "@clerk/nextjs";
+import { ClerkBoundary } from "@/components/auth/ClerkBoundary";
 import { Logo } from "@/components/brand/Logo";
 import { clerkEnabled } from "@/lib/auth-config";
 
@@ -34,12 +35,14 @@ export default function SignUpPage() {
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-6 bg-canvas px-6 py-12">
       <Logo href="/" />
-      <SignUp
-        routing="path"
-        path="/sign-up"
-        signInUrl="/sign-in"
-        fallbackRedirectUrl="/app?demo=0"
-      />
+      <ClerkBoundary>
+        <SignUp
+          routing="path"
+          path="/sign-up"
+          signInUrl="/sign-in"
+          fallbackRedirectUrl="/app?demo=0"
+        />
+      </ClerkBoundary>
       <p className="text-center text-[11.5px] text-muted">
         Already have an account?{" "}
         <Link href="/sign-in" className="font-medium text-ink underline underline-offset-2">
