@@ -7,8 +7,11 @@ const columns = [
   {
     title: "Product",
     links: [
-      { label: "Features", href: "/#features" },
+      { label: "Visun", href: "/visun" },
+      { label: "Workflow", href: "/workflow" },
+      { label: "Security", href: "/security" },
       { label: "Pricing", href: "/pricing" },
+      { label: "Capabilities", href: "/#capabilities" },
       { label: "Open the demo", href: "/app?demo=1" },
     ],
   },

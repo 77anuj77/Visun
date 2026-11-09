@@ -10,6 +10,7 @@ import {
 import { cn } from "@/lib/utils";
 
 type HoverState = "idle" | "grow";
+type CursorLabel = string | null;
 
 /**
  * Marketing-only cursor. It hides the native cursor only while it can actually
@@ -27,6 +28,7 @@ export function MarketingCursor() {
   const [enabled, setEnabled] = useState(false);
   const [authSurface, setAuthSurface] = useState(false);
   const [hover, setHover] = useState<HoverState>("idle");
+  const [label, setLabel] = useState<CursorLabel>(null);
   const [pressed, setPressed] = useState(false);
   const [visible, setVisible] = useState(false);
 
@@ -95,6 +97,7 @@ export function MarketingCursor() {
       root.classList.remove("mk-cursor-on");
       setVisible(false);
       setHover("idle");
+      setLabel(null);
     };
 
     const onMove = (event: PointerEvent) => {
@@ -123,10 +126,13 @@ export function MarketingCursor() {
       // Only hide the native cursor once the dot has a real pointer position.
       root.classList.add("mk-cursor-on");
       setVisible(true);
+      const labeled = target?.closest<HTMLElement>("[data-cursor]");
+      setLabel(labeled?.getAttribute("data-cursor") || null);
       setHover(
-        target?.closest(
-          "a, button, [role='button'], [data-cursor-grow], summary, label[for]",
-        )
+        labeled ||
+          target?.closest(
+            "a, button, [role='button'], [data-cursor-grow], summary, label[for]",
+          )
           ? "grow"
           : "idle",
       );
@@ -170,11 +176,22 @@ export function MarketingCursor() {
           "shadow-[0_0_0_1px_rgba(255,255,255,0.25)]",
         )}
         animate={{
-          scale: pressed ? 0.72 : hover === "grow" ? 2.8 : 1,
+          scale: pressed ? 0.72 : label ? 2.2 : hover === "grow" ? 2.8 : 1,
           opacity: visible ? 1 : 0,
         }}
         transition={{ type: "spring", stiffness: 320, damping: 24 }}
       />
+      <motion.span
+        aria-hidden="true"
+        className="pointer-events-none absolute left-4 top-2 whitespace-nowrap font-mono text-[8px] uppercase tracking-[0.16em] text-white"
+        animate={{
+          opacity: visible && label ? 1 : 0,
+          x: visible && label ? 0 : -4,
+        }}
+        transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+      >
+        {label}
+      </motion.span>
     </motion.div>
   );
 }

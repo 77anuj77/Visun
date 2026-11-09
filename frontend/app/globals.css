@@ -463,3 +463,270 @@ html.mk-cursor-on [data-native-cursor] {
 .mk-footer-wordmark {
   line-height: 1;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Living-workspace landing                                                   */
+/* -------------------------------------------------------------------------- */
+
+.mk-landing {
+  --mk-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  font-family: var(--font-sans);
+}
+
+.mk-landing ::selection {
+  background: #ff5a00;
+  color: #f8f8f6;
+}
+
+.mk-hero {
+  background:
+    radial-gradient(80% 70% at 18% 18%, rgba(255, 225, 123, 0.16), transparent 58%),
+    radial-gradient(60% 70% at 86% 30%, rgba(255, 90, 0, 0.1), transparent 60%),
+    #f8f8f6;
+}
+
+.mk-hero-grid {
+  background-image:
+    linear-gradient(to right, rgba(29, 29, 29, 0.045) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(29, 29, 29, 0.045) 1px, transparent 1px);
+  background-size: 72px 72px;
+  mask-image: linear-gradient(to bottom, black, transparent 82%);
+}
+
+.mk-noise {
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 220 220' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 180px 180px;
+  mix-blend-mode: soft-light;
+  pointer-events: none;
+}
+
+@media (min-width: 1024px) {
+  .mk-chaos-scatter {
+    transform: translate3d(var(--x), var(--y), 0) rotate(var(--r)) scale(0.94);
+  }
+}
+
+/* Organic cloud ----------------------------------------------------------- */
+
+.mk-cloud {
+  animation: mk-cloud-float 9s ease-in-out infinite;
+  transform-origin: 50% 52%;
+}
+
+.mk-cloud-a,
+.mk-cloud-b,
+.mk-cloud-c {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.mk-cloud-a {
+  animation: mk-cloud-morph-a 13s ease-in-out infinite alternate;
+}
+
+.mk-cloud-b {
+  animation: mk-cloud-morph-b 17s ease-in-out infinite alternate;
+}
+
+.mk-cloud-c {
+  animation: mk-cloud-morph-c 11s ease-in-out infinite alternate;
+}
+
+.mk-cloud-glow {
+  animation: mk-cloud-glow 7s ease-in-out infinite;
+}
+
+.mk-cloud-shadow {
+  animation: mk-cloud-shadow 8s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.mk-cloud-particle {
+  animation: mk-cloud-particles 10s ease-in-out infinite alternate;
+}
+
+.mk-cloud-orbit {
+  animation: mk-cloud-orbit 7s ease-in-out infinite;
+}
+
+@keyframes mk-cloud-float {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) rotate(-1deg);
+  }
+  50% {
+    transform: translate3d(0, -14px, 0) rotate(1.5deg);
+  }
+}
+
+@keyframes mk-cloud-morph-a {
+  0% {
+    transform: rotate(-3deg) scale(0.985);
+  }
+  100% {
+    transform: rotate(4deg) scale(1.025);
+  }
+}
+
+@keyframes mk-cloud-morph-b {
+  0% {
+    transform: rotate(4deg) translate(4px, -3px) scale(1.02);
+  }
+  100% {
+    transform: rotate(-5deg) translate(-5px, 4px) scale(0.97);
+  }
+}
+
+@keyframes mk-cloud-morph-c {
+  0% {
+    transform: scale(0.96) translate(-3px, 2px);
+  }
+  100% {
+    transform: scale(1.04) translate(4px, -3px);
+  }
+}
+
+@keyframes mk-cloud-glow {
+  0%,
+  100% {
+    opacity: 0.32;
+  }
+  50% {
+    opacity: 0.62;
+  }
+}
+
+@keyframes mk-cloud-shadow {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scaleX(0.94);
+  }
+  50% {
+    opacity: 0.95;
+    transform: scaleX(1.04);
+  }
+}
+
+@keyframes mk-cloud-particles {
+  0% {
+    transform: translateY(4px);
+    opacity: 0.55;
+  }
+  100% {
+    transform: translateY(-8px);
+    opacity: 1;
+  }
+}
+
+@keyframes mk-cloud-orbit {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+    opacity: 0.4;
+  }
+  50% {
+    transform: translate3d(5px, -12px, 0);
+    opacity: 0.9;
+  }
+}
+
+/* Voice presence ---------------------------------------------------------- */
+
+.mk-voice-breathe {
+  animation: mk-voice-breathe 6s ease-in-out infinite;
+  transform-origin: center;
+}
+
+.mk-voice-ring {
+  animation: mk-voice-ring 5.5s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+  transform-origin: center;
+}
+
+.mk-voice-morph {
+  animation: mk-voice-morph 18s linear infinite;
+}
+
+@keyframes mk-voice-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.045);
+  }
+}
+
+@keyframes mk-voice-ring {
+  0% {
+    transform: scale(0.92);
+    opacity: 0.45;
+  }
+  50% {
+    transform: scale(1.12);
+    opacity: 0.12;
+  }
+  100% {
+    transform: scale(0.92);
+    opacity: 0.45;
+  }
+}
+
+@keyframes mk-voice-morph {
+  0% {
+    transform: rotate(0deg) scale(1);
+  }
+  50% {
+    transform: rotate(180deg) scale(1.08);
+  }
+  100% {
+    transform: rotate(360deg) scale(1);
+  }
+}
+
+/* Hero scroll cue --------------------------------------------------------- */
+
+.mk-scroll-cue {
+  display: block;
+}
+
+.mk-scroll-dot {
+  animation: mk-scroll-dot 2.2s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+
+@keyframes mk-scroll-dot {
+  0% {
+    transform: translateY(-12px);
+    opacity: 0;
+  }
+  25% {
+    opacity: 1;
+  }
+  75% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(40px);
+    opacity: 0;
+  }
+}
+
+/* The custom cursor is enabled only by the `.mk-cursor-on` gate. */
+
+@media (prefers-reduced-motion: reduce) {
+  .mk-cloud,
+  .mk-cloud-a,
+  .mk-cloud-b,
+  .mk-cloud-c,
+  .mk-cloud-glow,
+  .mk-cloud-shadow,
+  .mk-cloud-particle,
+  .mk-cloud-orbit,
+  .mk-voice-breathe,
+  .mk-voice-ring,
+  .mk-voice-morph,
+  .mk-scroll-dot {
+    animation: none !important;
+  }
+}

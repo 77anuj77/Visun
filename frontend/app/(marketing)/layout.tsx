@@ -21,7 +21,9 @@ export default function MarketingLayout({ children }: { children: ReactNode }) {
       <MarketingCursor />
       <SmoothScroll />
       <MarketingNav />
-      <main id="main">{children}</main>
+      <main id="main" className="pt-[74px]">
+        {children}
+      </main>
       <MarketingFooter />
     </div>
   );
