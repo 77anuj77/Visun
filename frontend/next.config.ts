@@ -9,6 +9,8 @@ const backendOrigin =
   process.env.BACKEND_ORIGIN?.trim().replace(/\/$/, "") || "http://localhost:8000";
 
 const nextConfig: NextConfig = {
+  // The self-hosted Docker image runs the minimal standalone server.
+  output: "standalone",
   reactStrictMode: true,
   agentRules: false,
   turbopack: {

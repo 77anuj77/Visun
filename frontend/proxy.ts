@@ -1,6 +1,6 @@
 import { NextResponse, type NextFetchEvent, type NextRequest } from "next/server";
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
-import { DEMO_COOKIE } from "@/lib/auth-config";
+import { DEMO_COOKIE, clerkEnabled } from "@/lib/auth-config";
 
 const isWorkspaceRoute = createRouteMatcher(["/app(.*)"]);
 
@@ -67,7 +67,8 @@ const clerkProxy = clerkMiddleware(async (auth, request) => {
 
 export default function proxy(request: NextRequest, event: NextFetchEvent) {
   // No publishable key means the original credential-free demo deployment.
-  if (!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) {
+  // Use the trimmed flag so a whitespace build arg cannot enable middleware.
+  if (!clerkEnabled) {
     return NextResponse.next();
   }
   return clerkProxy(request, event);
