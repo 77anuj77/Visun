@@ -233,6 +233,10 @@ export type Integration = {
   tone: "orange" | "ink" | "stone" | "yellow";
 };
 
+export type VoiceName = "Achird" | "Sulafat" | "Aoede" | "Puck";
+export type VoiceLanguage = "auto" | "english" | "hindi";
+export type VoiceStyle = "natural" | "professional" | "energetic";
+
 export type Preferences = {
   voiceReplies: boolean;
   saveTranscripts: boolean;
@@ -240,6 +244,9 @@ export type Preferences = {
   dailyBrief: boolean;
   timezone: string;
   retention: "30" | "90" | "365" | "forever";
+  voiceName: VoiceName;
+  voiceLanguage: VoiceLanguage;
+  voiceStyle: VoiceStyle;
 };
 
 export type WorkspaceReference = {

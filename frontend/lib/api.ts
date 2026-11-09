@@ -115,7 +115,22 @@ export type HealthResponse = {
   providerMode: "simulated" | "real";
   providers: Record<string, ProviderStatus>;
   agent: { backend: string; geminiConfigured: boolean };
-  voice: { backend: string; configured: boolean; model: string | null };
+  voice: {
+    backend: string;
+    configured: boolean;
+    model: string | null;
+    defaultModel?: string;
+    voices?: string[];
+    affectiveDialog?: boolean;
+    /** Where the effective Live config came from, when known. */
+    source?: "workspace" | "environment" | null;
+    /** Present only for authenticated callers. */
+    workspace?: {
+      configured: boolean;
+      model: string | null;
+      source: "workspace" | "environment" | null;
+    };
+  };
 };
 
 export type AgentChatResponse = {
@@ -200,6 +215,63 @@ async function applyAuthHeaders(headers: Headers): Promise<void> {
       // surfaces an honest offline state instead of inventing data.
     }
   }
+}
+
+/**
+ * Open the voice WebSocket through the same-origin `/api/backend` rewrite.
+ *
+ * Browsers cannot set custom headers on a WebSocket, so authentication travels
+ * in the first frame: `{ token }` for Clerk or `{ demo: true }` for the seeded
+ * workspace. The server consumes that frame before it starts the session.
+ */
+export async function openVoiceSocket(): Promise<WebSocket> {
+  await waitForApiAuth();
+  if (typeof window === "undefined") {
+    throw new Error("Voice requires a browser window.");
+  }
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const socket = new WebSocket(
+    `${protocol}//${window.location.host}${BASE}/agent/voice`,
+  );
+
+  await new Promise<void>((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      socket.onopen = null;
+      socket.onerror = null;
+      try {
+        socket.close();
+      } catch {
+        // Already closed.
+      }
+      reject(new Error("Voice connection timed out."));
+    }, 6000);
+    socket.onopen = () => {
+      window.clearTimeout(timer);
+      socket.onopen = null;
+      socket.onerror = null;
+      resolve();
+    };
+    socket.onerror = () => {
+      window.clearTimeout(timer);
+      socket.onopen = null;
+      socket.onerror = null;
+      reject(new Error("Voice connection failed."));
+    };
+  });
+
+  const auth: Record<string, string | boolean> = {};
+  if (apiAuth.demo) {
+    auth.demo = true;
+  } else if (apiAuth.getToken) {
+    try {
+      const token = await apiAuth.getToken();
+      if (token) auth.token = token;
+    } catch {
+      // The server will close the socket; the caller falls back to Web Speech.
+    }
+  }
+  socket.send(JSON.stringify(auth));
+  return socket;
 }
 
 async function request<T>(

@@ -1039,6 +1039,9 @@ export const preferences: Preferences = {
   dailyBrief: true,
   timezone: "Asia/Kolkata",
   retention: "90",
+  voiceName: "Achird",
+  voiceLanguage: "auto",
+  voiceStyle: "natural",
 };
 
 const now = "2026-11-03T14:12:00+05:30";
