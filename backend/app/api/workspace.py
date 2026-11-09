@@ -713,7 +713,16 @@ async def recheck_payments(
 ) -> dict[str, Any]:
     invoices = _workspace_invoices(session, principal.workspace_id)
     updated: list[dict[str, Any]] = []
-    if settings.provider_mode == "simulated":
+    from ..seed import WORKSPACE_ID as DEMO_WORKSPACE_ID
+
+    # A public demo must never call a real provider, even if the installation
+    # has live credentials configured for the owner's own workspace. Local
+    # AUTH_MODE=demo stays testable.
+    demo = (
+        settings.auth_mode != "demo"
+        and principal.workspace_id == DEMO_WORKSPACE_ID
+    )
+    if settings.provider_mode == "simulated" or demo:
         record_activity(
             session,
             workspace_id=principal.workspace_id,
@@ -722,7 +731,7 @@ async def recheck_payments(
             title="Sandbox recheck (simulated)",
             detail=(
                 f"{len(invoices)} invoice records read locally. No PayPal network call was made "
-                "in simulated mode."
+                "for the demo workspace."
             ),
             status="info",
             reference="paypal-sync",
